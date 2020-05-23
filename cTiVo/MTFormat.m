@@ -161,7 +161,11 @@ __DDLOGHERE__
 {
 	if (!_pathForExecutable) {
 		
+#ifdef SANDBOX
+		NSArray *searchPaths = [NSArray arrayWithObjects:@"/usr/bin/%1$@",@"%1$@", nil];
+#else
 		NSArray *searchPaths = [NSArray arrayWithObjects:@"/usr/local/bin/%1$@",@"/opt/local/bin/%1$@",@"/usr/local/%1$@/bin/%1$@",@"/opt/local/%1$@/bin/%1$@",@"/usr/bin/%1$@",@"%1$@", nil];
+#endif
 		NSFileManager *fm = [NSFileManager defaultManager];
         NSString *validPath = [[NSBundle mainBundle] pathForAuxiliaryExecutable:self.encoderUsed ];
         if (!validPath) validPath = [[NSBundle mainBundle] pathForResource:self.encoderUsed ofType:@""];
@@ -421,6 +425,7 @@ __DDLOGHERE__
 
 -(BOOL)canMarkCommercials
 {
+	if (self.isTestPS) return NO;
 	NSArray * allowedExtensions = @[@".mp4", @".m4v"];
 	NSString * extension = [self.filenameExtension lowercaseString];
 	return [allowedExtensions containsObject: extension];
@@ -466,8 +471,7 @@ __DDLOGHERE__
 }
 
 -(BOOL) isDeprecated {
-    return ([self.encoderUsed isEqualToString:@"mencoder"] && !self.isTestPS) ||
-    [self.name hasPrefix:@"HB Old"];
+    return ([self.encoderUsed isEqualToString:@"mencoder"] && !self.isTestPS);
 }
 
 -(void)dealloc

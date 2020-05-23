@@ -10,6 +10,9 @@
 #import "MTTiVoManager.h"
 
 @interface MTManualTiVoEditorController ()
+@property (weak) IBOutlet NSTableView *manualTiVosTableView;
+@property (weak) IBOutlet NSTableView *networkTiVosTableView;
+@property (weak) IBOutlet NSProgressIndicator *tiVoLoadingSpinner;
 
 @end
 
@@ -30,6 +33,7 @@ __DDLOGHERE__
 -(BOOL)windowShouldClose:(id)sender
 {
 	[self.view.window makeFirstResponder:self.view]; //This closes out handing editing.
+	[self.tiVoLoadingSpinner stopAnimation:nil];
 	return YES;
 }
 
@@ -79,15 +83,84 @@ __DDLOGHERE__
         tiVos = [NSMutableArray arrayWithArray:existingTivos];
     }
     NSInteger newID = [tiVoManager nextManualTiVoID]; 
-    [tiVos addObject:@{@"enabled" : @NO, kMTTiVoUserName : @"TiVo Name", kMTTiVoIPAddress : @"0.0.0.0", kMTTiVoUserPort : @"80", kMTTiVoUserPortSSL : @"443", kMTTiVoUserPortRPC: @"1413", kMTTiVoID : @(newID), kMTTiVoTSN : @"", kMTTiVoManualTiVo : @YES, kMTTiVoMediaKey : @""}];
+    [tiVos addObject:@{@"enabled" : @NO, kMTTiVoUserName : @"TiVo Default", kMTTiVoIPAddress : @"0.0.0.0", kMTTiVoUserPort : @"80", kMTTiVoUserPortSSL : @"443", kMTTiVoUserPortRPC: @"1413", kMTTiVoID : @(newID), kMTTiVoTSN : @"", kMTTiVoManualTiVo : @YES, kMTTiVoMediaKey : kMTTiVoNullKey}];
    [[NSUserDefaults standardUserDefaults] setValue:tiVos forKeyPath:kMTTiVos];
 }
 
 -(IBAction) help:(id)sender {
-	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString: @"https://github.com/dscottbuch/cTiVo/wiki/Advanced-Topics#manual-tivos"]];
+	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString: @"https://github.com/mackworth/cTiVo/wiki/Advanced-Topics#manual-tivos"]];
 }
 
+-(BOOL) validateMenuItem:(NSMenuItem *)menuItem {
+	if (menuItem.action == @selector(reportTiVoInfo:)) {
+		NSTableView * tableView = (NSTableView *) [self.view.window firstResponder];
+		if (![tableView isKindOfClass: [NSTableView class] ]) return NO;
+		NSDictionary * tiVoDescription = [self selectedTiVo:tableView];
+		if (!tiVoDescription) return NO;
+		BOOL enabled = ((NSNumber *) tiVoDescription[kMTTiVoEnabled]).boolValue;
+		return enabled;
+	} else {
+		return YES;
+	}
+}
 
+-(IBAction) reportTiVoInfo: (NSView *) sender {
+	[self doubleClickTable:(NSTableView *) [self.view.window firstResponder]];
+}
+
+-(NSDictionary *) selectedTiVo: (NSTableView *) tableView  {
+	NSArrayController * controller = nil;
+	if (tableView == self.networkTiVosTableView  ) {
+		controller = networkTiVoArrayController;
+	} else if (tableView == self.manualTiVosTableView) {
+		controller = manualTiVoArrayController;
+	} else {
+		return nil;
+	}
+	NSArray * selected = [controller selectedObjects];
+	if (selected.count == 0) return nil;
+	return [selected firstObject];
+}
+								 
+-(IBAction) doubleClickTable:(NSTableView *) tableView {
+	if (![tableView isKindOfClass: [NSTableView class] ]) return;
+
+	NSDictionary * tiVoDescription = [self selectedTiVo:tableView] ;
+	if (!tiVoDescription) return;
+	
+	NSArray * allTiVos = [[tiVoManager tiVoList] arrayByAddingObjectsFromArray:[tiVoManager tiVoMinis]];
+	for (MTTiVo * candidate in allTiVos) {
+		if ([candidate isEqualToDescription:tiVoDescription]) {
+			if (candidate.rpcActive) {
+				[self.tiVoLoadingSpinner startAnimation:nil];
+				[candidate tiVoInfoWithCompletion:^(NSString *status) {
+					[self.tiVoLoadingSpinner stopAnimation:nil];
+					if (status) {
+						NSAlert *alert = [[NSAlert alloc] init];
+						NSString * name = candidate.tiVo.name ?:@"Unknown name";
+						[alert setMessageText:name];
+						[alert setInformativeText:status];
+						[alert addButtonWithTitle:@"OK"];
+						[alert setAlertStyle:NSAlertStyleInformational];
+
+						[alert beginSheetModalForWindow:self.view.window completionHandler:^(NSModalResponse returnCode) {
+							}];
+					}
+				}];
+			}
+			return;
+		}
+	}
+	NSAlert *alert = [[NSAlert alloc] init];
+	[alert setMessageText: tiVoDescription[@"userName"] ?: @"Unnamed TiVo"];
+	[alert setInformativeText:@"TiVo not found?"];
+	[alert addButtonWithTitle:@"OK"];
+	[alert setAlertStyle:NSAlertStyleInformational];
+
+	[alert beginSheetModalForWindow:self.view.window completionHandler:^(NSModalResponse returnCode) {
+	}];
+	
+}
 
 -(void)dealloc
 {

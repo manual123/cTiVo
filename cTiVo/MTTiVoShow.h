@@ -7,7 +7,6 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "iTunes.h"
 #import "MTTiVo.h"
 #import "MTFormat.h"
 #import "mp4v2.h"
@@ -93,6 +92,7 @@
 
 @property (nonatomic, strong) NSDictionary <NSString *, id> * tvdbData;
 @property (nonatomic, strong) MTRPCData * rpcData;
+@property (nonatomic, assign) MPEGFormat mpegFormat;
 
 //--------------------------------------------------------------
 #pragma mark - Calculated properties for display 

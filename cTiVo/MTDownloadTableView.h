@@ -17,12 +17,13 @@
 	IBOutlet NSButton *removeFromQueueButton;
 }
 
-@property (nonatomic, strong) NSArray *sortedDownloads;
+@property (nonatomic, strong) NSArray <MTDownload *> * sortedDownloads;
 
 
 -(BOOL)playVideo;
 -(BOOL)selectionContainsCompletedShows;
 -(NSArray <MTDownload *> *) actionItems;
+-(void)columnChanged:(NSTableColumn *) column;
 
 - (IBAction)clearHistory:(id)sender;
 @end

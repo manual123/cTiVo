@@ -22,6 +22,24 @@
 {
     BOOL launched;
 }
+@property (strong, nonatomic) NSTask *task;
+
+@property (strong, nonatomic) NSString	*taskName,
+//                                        *baseName,
+//										*outputFilePath,
+*logFilePath,
+*errorFilePath;
+
+@property (strong, nonatomic) NSFileHandle	*outputFileHandle,
+*errorFileHandle,
+*logFileWriteHandle,
+*logFileReadHandle;
+
+@property (strong, nonatomic) NSRegularExpression *trackingRegEx; //not currently used
+
+@property (atomic) BOOL taskRunning;
+
+@property int pid;
 
 @end
 
@@ -125,8 +143,10 @@ __DDLOGHERE__
 	}
 	[self terminate];
 
-	usleep (100);
-	[self saveLogFile];
+	if (ddLogLevel & LOG_FLAG_DETAIL) {
+		usleep (100);
+		[self saveLogFile];
+	}
 	//following line has important side effect that it lets the task do whatever it needs to do to terminate before killing it dead in dealloc
 	[self performSelector:@selector(doNothing) withObject:self afterDelay:2.0];
 }
@@ -137,6 +157,7 @@ __DDLOGHERE__
 
 -(void)cleanUp
 {
+	self.taskRunning = NO;
     if (_cleanupHandler) {
         _cleanupHandler();
         _cleanupHandler = nil; //only call once
@@ -163,7 +184,6 @@ __DDLOGHERE__
 			[[NSFileManager defaultManager] removeItemAtPath:_errorFilePath error:nil];
 		}
 	}
-    self.taskRunning = NO;
 }
 
 -(void) reportOldProcessor {
@@ -199,6 +219,7 @@ __DDLOGHERE__
 
 -(void)completeProcess
 {
+	_task.terminationHandler = NULL; // in case timer went off before handler
     DDLogMajor(@"Finished task %@ of show %@ with completion code %d and reason %@",_taskName, _download.show.showTitle, _task.terminationStatus,[self reasonForTermination]);
     if (self.taskFailed) {
         if (_task.terminationStatus == 0x4 && _task.terminationReason == NSTaskTerminationReasonUncaughtSignal) {
@@ -211,6 +232,8 @@ __DDLOGHERE__
 				_completionHandler = nil;
 				[self failedTaskCompletion];
 				return;
+			} else {
+				_completionHandler = nil;
 			}
         }
         [self cleanUp];
@@ -219,9 +242,11 @@ __DDLOGHERE__
 
 -(void)failedTaskCompletion
 {
-	DDLogReport(@"Task %@ failed",self.taskName);
-    [self saveLogFile];
-    [self cleanUp];
+	if (!_download.isCanceled || (ddLogLevel & LOG_FLAG_DETAIL)) {
+		DDLogReport(@"Task %@ failed",self.taskName);
+    	[self saveLogFile];
+	}
+	[self cleanUp];
 
 	if (!_download.isCanceled && _shouldReschedule){
 		_myTaskChain.beingRescheduled = YES;
@@ -405,6 +430,12 @@ __DDLOGHERE__
     [_task setStandardOutput:stdo];
 }
 
+-(id)standardInput
+{
+	return _task.standardInput;
+}
+
+
 -(void)setStandardInput:(id)stdi
 {
     [_task setStandardInput:stdi];
@@ -426,7 +457,7 @@ __DDLOGHERE__
         shouldLaunch = _startupHandler();
     }
     if (shouldLaunch) {
-        DDLogVerbose(@"Launching: %@",self);
+        DDLogDetail(@"Launching: %@",self);
         NSFileManager * fm = [NSFileManager defaultManager];
         NSString * errorString = nil;
         if ([fm fileExistsAtPath:_task.currentDirectoryPath]) {
@@ -437,6 +468,15 @@ __DDLOGHERE__
            [fm createDirectoryAtPath:_task.currentDirectoryPath withIntermediateDirectories:YES  attributes: nil error: &error];
             errorString = error.localizedDescription;
         }
+		__weak __typeof__(self) weakSelf = self;
+		_task.terminationHandler = ^(NSTask * _Nonnull task) {
+			__typeof__(self) strongSelf = weakSelf; if (!strongSelf) return;
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[NSObject cancelPreviousPerformRequestsWithTarget:strongSelf selector:@selector(trackProcess) object:nil ]; //this has to be on main queue
+				DDLogDetail(@"%@ task terminated. Status: %@",strongSelf.taskName, @(strongSelf.task.terminationStatus));
+				[strongSelf trackProcess];
+			});
+		};
         @try {
             [_task launch];
             launched = YES;

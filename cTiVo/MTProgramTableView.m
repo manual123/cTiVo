@@ -715,19 +715,19 @@ __DDLOGHERE__
 		}
 		switch (whichImage) {
 			case 5: result.imageView.image = [NSImage imageNamed:@"skipModeComskip"];
-				result.toolTip = @"Commercial breakpoints loaded from comskip ";
+				result.toolTip = @"Commercial breakpoints loaded from comskip";
 				break;
 			case 4:  result.imageView.image = [NSImage imageNamed:@"skipModeQuestion"];
 				result.toolTip = @"SkipMode breakpoints may still be coming";
 				break;
 			case 3:  result.imageView.image = [NSImage imageNamed:@"skipMode"];
-				result.toolTip = @"SkipMode breakpoints retrieved.";
+				result.toolTip = @"SkipMode breakpoints retrieved";
 				break;
 			case 2:  result.imageView.image = [NSImage imageNamed:@"skipModeSlash"];
 				result.toolTip = @"SkipMode retrieval failed";
 				break;
 			case 1:  result.imageView.image = [NSImage imageNamed:@"skipModeInverted"];
-				result.toolTip = @"SkipMode on TiVo, but not retrieved yet.";
+				result.toolTip = @"SkipMode on TiVo, but not retrieved yet";
 				break;
 			default: result.imageView.image = nil;
 				break;
@@ -798,12 +798,15 @@ __DDLOGHERE__
 		result.textField.alignment = NSCenterTextAlignment;
 	} else if ([identifier isEqualToString:@"H.264"]) {
 		result.textField.alignment = NSCenterTextAlignment;
-		result.toolTip =@"Does this channel use H.264 compression?";
+		result.toolTip =@"Does this show (✔) or channel (√) use H.264 compression v. MPEG2 ( -- or -)?";
 	} else if ([identifier isEqualToString:@"OnDisk"]) {
 		result.toolTip =@"Is program already downloaded and still on disk?";
 	}
-
-	if ([thisShow isOnDisk]){
+	BOOL onDisk = [thisShow isOnDisk];
+	if (folderHolder) {
+		onDisk = [folderHolder isOnDisk];
+	}
+	if (onDisk){
 		result.textField.font = [[NSFontManager sharedFontManager] convertFont:result.textField.font toHaveTrait:NSFontBoldTrait];
 	} else {
 		result.textField.font = [[NSFontManager sharedFontManager] convertFont:result.textField.font toNotHaveTrait:NSFontBoldTrait];

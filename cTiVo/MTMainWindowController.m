@@ -24,22 +24,6 @@
 
 #import <Quartz/Quartz.h>
 
-//All this mess is just to avoid the error msg that "Drawer cannot have first responder of MTProgramTableView"
-//remove if we move from Drawer to splitView or expanded Row concept
-@interface NSWindow (FirstResponding)
--(void)_setFirstResponder:(NSResponder *)responder;
-@end
-@interface NSDrawerWindow : NSWindow
-@end
-@implementation NSDrawerWindow (avoidWarning)
-
--(void) _setFirstResponder:(NSView *) view {
-	if (![view isKindOfClass:[NSTableView class]]) {
-		[super _setFirstResponder:view];
-	}
-}
-@end
-
 @implementation NSView (HS)
 
 -(NSView *)insertVibrancyView {
@@ -77,6 +61,7 @@
 @property (weak, nonatomic, readonly) MTTiVoManager *myTiVoManager;
 @property (nonatomic, weak) NSMenuItem *showInFinderMenuItem, *playVideoMenuItem;
 @property (nonatomic, strong) IBOutlet NSView *cancelQuitView;
+@property (nonatomic, weak) IBOutlet NSImageView * icon;
 
 -(IBAction)selectFormat:(id)sender;
 -(IBAction)subscribe:(id) sender;
@@ -125,7 +110,10 @@ __DDLOGHERE__
     // Implement this method to handle any initialization after your window controller's window has been loaded from its nib file.
     
     [self.window.contentView insertVibrancyView];
- 
+#ifdef MAC_APP_STORE
+	self.icon.image = [NSApp applicationIconImage];
+#endif
+	self.window.title = kcTiVoName;
     [[NSBundle mainBundle] loadNibNamed:@"MTMainWindowDrawer" owner:self topLevelObjects:nil];
 	showDetailDrawer.parentWindow = self.window;
 	
@@ -143,8 +131,9 @@ __DDLOGHERE__
     [defaultCenter addObserver:self selector:@selector(networkChanged:) name:kMTNotificationNetworkChanged object:nil];
 	
     [defaultCenter addObserver:self selector:@selector(columnOrderChanged:) name:NSTableViewColumnDidMoveNotification object:nil];
-    [tiVoManager addObserver:self forKeyPath:@"selectedFormat" options:NSKeyValueObservingOptionInitial context:nil];
-	
+	[tiVoManager addObserver:self forKeyPath:@"selectedFormat" options:NSKeyValueObservingOptionInitial context:nil];
+	[[NSUserDefaults standardUserDefaults] addObserver:self forKeyPath:kMTIfSuccessDeleteFromTiVo options:NSKeyValueObservingOptionInitial context:nil];
+
 	[self buildColumnMenuForTables ];
 	[pausedLabel setNextResponder:downloadQueueTable];  //Pass through mouse events to the downloadQueueTable.
 	
@@ -172,7 +161,26 @@ __DDLOGHERE__
 {
 	if ([keyPath compare:@"selectedFormat"] == NSOrderedSame) {
         [formatListPopUp selectFormat:[tiVoManager selectedFormat]];
-    } else {
+	} else if ([keyPath compare:kMTIfSuccessDeleteFromTiVo] == NSOrderedSame) {
+		//Always show Del After columns if user enables DeleteFromTiVo
+		BOOL deleteAfter =[[NSUserDefaults standardUserDefaults] boolForKey:kMTIfSuccessDeleteFromTiVo];
+		NSTableColumn * downloadDeleteAfter = [self.downloadQueueTable tableColumnWithIdentifier: @"Delete"];
+		if (downloadDeleteAfter.isHidden == deleteAfter) {
+			downloadDeleteAfter.hidden = !deleteAfter;
+			if ([self.downloadQueueTable respondsToSelector:@selector(columnChanged:)]) {
+				[self.downloadQueueTable performSelector:@selector(columnChanged:) withObject:downloadDeleteAfter];
+			}
+			[self buildColumnMenuForTable: downloadQueueTable];
+		}
+		NSTableColumn * subDeleteAfter = [self.subscriptionTable tableColumnWithIdentifier: @"Delete"];
+		if (subDeleteAfter.isHidden == deleteAfter) {
+			subDeleteAfter.hidden = !deleteAfter;
+			if ([self.subscriptionTable respondsToSelector:@selector(columnChanged:)]) {
+				[self.subscriptionTable performSelector:@selector(columnChanged:) withObject:subDeleteAfter];
+			}
+			[self buildColumnMenuForTable: subscriptionTable];
+		}
+	} else {
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
     }
 }
@@ -190,7 +198,10 @@ __DDLOGHERE__
 	NSColor * red =  [NSColor redColor];
 	if (@available(macOS 10.10, *)) red = [NSColor systemRedColor];
 	NSDictionary <NSAttributedStringKey,id> * attribs = commercials ? @{NSForegroundColorAttributeName:red}  : @{};
-	NSString * list = [[[[set allObjects] valueForKeyPath: path] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] componentsJoinedByString:@", "];
+	NSMutableArray * names = [[[set allObjects] valueForKeyPath: path] mutableCopy];
+	[names removeObjectIdenticalTo:[NSNull null]];
+	[names sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+	NSString * list = [names componentsJoinedByString:@", "];
  return [[NSMutableAttributedString alloc] initWithString: list attributes:attribs];
 }
 
@@ -338,12 +349,13 @@ __DDLOGHERE__
             MTSubscription * subscription = (MTSubscription *) thisButton.owner;
             
             subscription.encodeFormat = [tiVoManager findFormat:[thisButton selectedItem].title];
+			[[NSNotificationCenter defaultCenter] postNotificationName: kMTNotificationSubscriptionChanged object:subscription];
        } else if ([thisButton.owner class] == [MTDownload class]) {
             MTDownload * download = (MTDownload *) thisButton.owner;
            if(download.isNew) {
                 download.encodeFormat = [tiVoManager findFormat:[thisButton selectedItem].title];
             }
-          [[NSNotificationCenter defaultCenter] postNotificationName: kMTNotificationDownloadStatusChanged object:download];
+          [[NSNotificationCenter defaultCenter] postNotificationName: kMTNotificationDownloadRowChanged object:download];
        }
      }
 }
@@ -355,12 +367,20 @@ __DDLOGHERE__
 		[menuItem action]==@selector(subscribe:) ||
 		[menuItem action]==@selector(showDetails:) ||
 		[menuItem action]==@selector(reloadAllInfo:) ||
-		[menuItem action]==@selector(revealInNowPlaying:) ||
 		[menuItem action]==@selector(downloadSelectedShows:)) {
 		
 		MTProgramTableView * table = self.tiVoShowTable; //default; could also be download or subscribe; must have actionItems property
 		if ([self.window.firstResponder isKindOfClass:[NSTableView class]]) table = (MTProgramTableView *) self.window.firstResponder;
 		return (table.actionItems.count > 0);
+	}
+	if ([menuItem action]==@selector(revealInNowPlaying:)) {
+		NSArray <MTDownload *> * downloads = self.downloadQueueTable.actionItems;
+		for (MTDownload * download in downloads) {
+			if (download.downloadStatus.intValue != kMTStatusDeleted) {
+				return YES;
+			}
+		}
+		return NO;
 	}
 	BOOL deleteItem =  menuItem.action == @selector(deleteOnTiVo:);
 	BOOL playItem =  menuItem.action == @selector(playOnTiVo:);
@@ -370,7 +390,7 @@ __DDLOGHERE__
 		if (deleteItem) menuItem.title = @"Delete from TiVo"; //alternates with remove from Queue
 		NSArray	*selectedShows = [self selectedShows ];
 		for (MTTiVoShow * show in selectedShows) {
-			if (show.rpcData && show.tiVo.rpcActive) {
+			if (show.rpcData && show.tiVo.rpcActive && ! [show.imageString isEqualToString:@"Deleted"]) {
 				if (stopItem) {
 					if (show.inProgress.boolValue) return YES;
 				} else if (getSkipItem) {
@@ -390,7 +410,10 @@ __DDLOGHERE__
 		} else {
 			menuItem.title = @"Refresh TiVo";
 		}
+	} else 	if (menuItem.action == @selector(reportTiVoInfo:)) {
+		return (tiVoManager.tiVoList.count >= 1);
 	}
+
     return YES;
 }
 
@@ -399,6 +422,46 @@ __DDLOGHERE__
 		self.showForDetail = show;
 		[showDetailDrawer open];
     }
+}
+
+-(IBAction) reportTiVoInfo: (NSView *) sender {
+	if (tiVoManager.tiVoList.count >= 1) return;
+	
+	MTTiVo * candidate = tiVoManager.tiVoList[0];
+	if (tiVoManager.tiVoList.count > 1 &&
+		![self.selectedTiVo isEqualToString:kMTAllTiVos]) {
+		for (MTTiVo *targetTiVo in tiVoManager.tiVoList) {
+			if ([targetTiVo.tiVo.name isEqualToString: self.selectedTiVo] ) {
+				candidate = targetTiVo;
+				break;
+			}
+		}
+	}
+	if (!candidate.rpcActive)  return;
+	
+	__weak NSProgressIndicator * weakSpinner = loadingProgramListIndicator;
+	__weak __typeof__(self) weakSelf = self;
+
+	[weakSpinner startAnimation:nil];
+
+	[candidate tiVoInfoWithCompletion:^(NSString *status) {
+		__typeof__(self) strongSelf = weakSelf;
+		if (strongSelf.loadingTiVos.count + strongSelf.commercialingTiVos.count == 0) {
+			//otherwise our regular process will turn off.
+			[weakSpinner stopAnimation:nil];
+		}
+		if (status) {
+			NSAlert *alert = [[NSAlert alloc] init];
+			NSString * name = candidate.tiVo.name ?:@"Unknown name";
+			[alert setMessageText:name];
+			[alert setInformativeText:status];
+			[alert addButtonWithTitle:@"OK"];
+			[alert setAlertStyle:NSAlertStyleInformational];
+
+			[alert beginSheetModalForWindow:strongSelf.window completionHandler:^(NSModalResponse returnCode) {
+				}];
+		}
+	}];
 }
 
 -(NSArray <MTTiVoShow *> *) showsForDownloads:(NSArray <MTDownload *> *) downloads includingDone: (BOOL) includeDone {
@@ -560,7 +623,7 @@ __DDLOGHERE__
         msg = [NSString stringWithFormat:@"Are you sure you want to %@ '%@' and %d others %@ your TiVo?", behavior, shows[0].showTitle, (int)shows.count -1, prep ];
     }
 
-    NSAlert *myAlert = [NSAlert alertWithMessageText:msg defaultButton:@"No" alternateButton:@"Yes" otherButton:nil informativeTextWithFormat:@"This cannot be undone from cTiVo."];
+    NSAlert *myAlert = [NSAlert alertWithMessageText:msg defaultButton:@"No" alternateButton:@"Yes" otherButton:nil informativeTextWithFormat:@"This cannot be undone from " kcTiVoName @"."];
     myAlert.alertStyle = NSCriticalAlertStyle;
     NSInteger result = [myAlert runModal];
     return (result == NSAlertAlternateReturn);
@@ -632,47 +695,38 @@ __DDLOGHERE__
 
 #pragma mark - Download Options
 
--(IBAction)changeSkip:(id)sender
-{
+-(IBAction)changeSkip:(id)sender {
     MTCheckBox *checkbox = sender;
 	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
 		MTDownload *download = (MTDownload *)(checkbox.owner);
         download.skipCommercials = ! download.skipCommercials;
-		if (download.skipCommercials) {
-			download.markCommercials = NO;
-		}
         [[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationDownloadRowChanged object:download];
     } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
-		
         MTSubscription *sub = (MTSubscription *)(checkbox.owner);
-		sub.skipCommercials = [NSNumber numberWithBool: ! [sub.skipCommercials boolValue]];
-		if ([sub.skipCommercials boolValue]) {
-			sub.markCommercials = @NO;
-		}
+		sub.skipCommercials = @( ! sub.skipCommercials.boolValue);
 		[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationSubscriptionChanged object:sub];
-                
     }
 }
 
--(IBAction)changeMark:(id)sender
-{
+-(IBAction)changeUseTS:(id)sender {
+	MTCheckBox *checkbox = sender;
+	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
+		MTDownload *download = (MTDownload *)(checkbox.owner);
+		download.useTransportStream = @(! download.useTransportStream.boolValue);
+		[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationDownloadRowChanged object:download];
+	}
+}
+
+-(IBAction)changeMark:(id)sender {
     MTCheckBox *checkbox = sender;
 	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
 		MTDownload *download = (MTDownload *)(checkbox.owner);
         download.markCommercials = ! download.markCommercials;
-		if (download.markCommercials) {
-			download.skipCommercials = NO;
-		}
         [[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationDownloadRowChanged object:download];
     } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
-		
         MTSubscription *sub = (MTSubscription *)(checkbox.owner);
-		sub.markCommercials = [NSNumber numberWithBool: ! [sub.markCommercials boolValue]];
-		if ([sub.markCommercials boolValue]) {
-			sub.skipCommercials = @NO;
-		}
+		sub.markCommercials = @( ! [sub.markCommercials boolValue]);
 		[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationSubscriptionChanged object:sub];
-		
     }
 }
 -(IBAction)changeUseSkipMode:(id)sender
@@ -695,50 +749,11 @@ __DDLOGHERE__
 	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
         //updating an individual show in download queue
             ((MTDownload *)checkbox.owner).addToiTunesWhenEncoded = !((MTDownload *)checkbox.owner).addToiTunesWhenEncoded;
-
     } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
 		MTSubscription *sub = (MTSubscription *)(checkbox.owner);
 		sub.addToiTunes = [NSNumber numberWithBool: ! sub.shouldAddToiTunes];
-                
     }
 }
-#ifndef deleteXML
--(IBAction)changeXML:(id)sender
-{
-    MTCheckBox *checkbox = sender;
-	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
-        //updating an individual show in download queue
-		MTDownload * download = (MTDownload *)checkbox.owner;
-		NSNumber *newVal = [NSNumber numberWithBool: ! download.genXMLMetaData.boolValue ];
-		download.genXMLMetaData = newVal;
-		
-    } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
-		MTSubscription *sub = (MTSubscription *)(checkbox.owner);
-		NSNumber *newVal = [NSNumber numberWithBool: ! sub.genXMLMetaData.boolValue ];
-		sub.genXMLMetaData = newVal;
-                
-    }
-}
-
--(IBAction)changeMetadata:(id)sender
-{
-    MTCheckBox *checkbox = sender;
-	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
-        //updating an individual show in download queue
-		MTDownload * download = (MTDownload *)checkbox.owner;
-		NSNumber *newVal = [NSNumber numberWithBool: ! download.includeAPMMetaData.boolValue ];
-		download.includeAPMMetaData = newVal;
-		
-    } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
-		MTSubscription *sub = (MTSubscription *)(checkbox.owner);
-		NSNumber *newVal = [NSNumber numberWithBool: ! sub.includeAPMMetaData.boolValue ];
-		sub.includeAPMMetaData = newVal;
-                
-    }
-}
-
-
-#endif
 
 -(IBAction)changepyTiVo:(id)sender
 {
@@ -764,15 +779,27 @@ __DDLOGHERE__
 		MTDownload * download = (MTDownload *)checkbox.owner;
 		NSNumber *newVal = [NSNumber numberWithBool: ! download.exportSubtitles.boolValue ];
 		download.exportSubtitles = newVal;
-		
     } else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){ 
 		MTSubscription *sub = (MTSubscription *)(checkbox.owner);
 		NSNumber *newVal = [NSNumber numberWithBool: ! sub.exportSubtitles.boolValue ];
 		sub.exportSubtitles = newVal;
-        		
     }
 }
 
+-(IBAction)changeDelete:(id)sender
+{
+	MTCheckBox *checkbox = sender;
+	if ([checkbox.owner isKindOfClass:[MTDownload class]]){
+		//updating an individual show in download queue
+		MTDownload * download = (MTDownload *)checkbox.owner;
+		NSNumber *newVal = @( ! download.deleteAfterDownload.boolValue);
+		download.deleteAfterDownload = newVal;
+	} else if ([checkbox.owner isKindOfClass:[MTSubscription class]]){
+		MTSubscription *sub = (MTSubscription *)(checkbox.owner);
+		NSNumber *newVal = @( ! sub.deleteAfterDownload.boolValue );
+		sub.deleteAfterDownload = newVal;
+	}
+}
 
 #pragma mark - Customize Columns
 
@@ -844,6 +871,7 @@ __DDLOGHERE__
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [tiVoManager removeObserver:self forKeyPath:@"selectedFormat"];
+	[[NSUserDefaults standardUserDefaults] removeObserver:self forKeyPath:kMTIfSuccessDeleteFromTiVo];
 }
 
 

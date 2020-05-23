@@ -10,12 +10,13 @@
 #import "MTTiVoManager.h"
 #import "NSNotificationCenter+Threads.h"
 
-@interface MTRemoteWindowController ()
+@interface MTRemoteWindowController ()<NSWindowDelegate>
 @property (nonatomic, weak) IBOutlet NSPopUpButton * tivoListPopup;
 @property (nonatomic, strong) NSArray <MTTiVo *> * tiVoList;
 @property (nonatomic, readonly) MTTiVo * selectedTiVo;
 @property (nonatomic, weak) IBOutlet NSImageView * tivoRemote;
 @property (nonatomic, weak) IBOutlet NSMenu * serviceMenu;
+@property (weak) IBOutlet NSProgressIndicator *infoLoadingSpinner;
 @end
 
 @implementation MTRemoteWindowController
@@ -26,33 +27,25 @@ __DDLOGHERE__
 	if ((self = [self initWithWindowNibName:@"MTRemoteWindowController"])) {
 		[self updateTiVoList];
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateTiVoList) name:kMTNotificationTiVoListUpdated object:nil];
-		
         self.window.contentAspectRatio = self.tivoRemote.image.size;
     };
+	self.window.delegate = self;
 	return self;
 }
 
--(void) whatsOn {
-	[self.selectedTiVo whatsOnWithCompletion:^(MTWhatsOnType whatsOn, NSString *recordingID) {
-		switch (whatsOn) {
-			case MTWhatsOnUnknown:
-				DDLogReport(@"Tivo is showing unknown %@", recordingID);
-				break;
-			case MTWhatsOnLiveTV:
-				DDLogReport(@"Tivo is showing live TV %@", recordingID);
-				break;
-			case MTWhatsOnRecording:
-				DDLogReport(@"Tivo is showing a recording %@", recordingID);
-				break;
-			case MTWhatsOnStreamingOrMenus:
-				DDLogReport(@"Tivo is in menus or streaming %@", recordingID);
-				break;
-			default:
-				break;
-		}
-	}];
+- (void)windowDidResignKey:(NSNotification *)notification {
+	[self.infoLoadingSpinner stopAnimation:nil];
 }
-	 
+
+- (NSSize)windowWillResize:(NSWindow *)sender
+					toSize:(NSSize)frameSize {
+	if (isnan(frameSize.height)) {
+		//who knows why the OS is sending us this...?
+		frameSize.height = frameSize.width * (sender.frame.size.height/ sender.frame.size.width);
+	}
+	return frameSize;
+}
+
 -(MTTiVo *) selectedTiVo {
 	MTTiVo* tivo = nil;
 	if (self.tiVoList.count > 0) {
@@ -81,6 +74,17 @@ __DDLOGHERE__
 	[NSMenu popUpContextMenu:self.serviceMenu
 				   withEvent: NSApplication.sharedApplication.currentEvent
 							   forView:(NSButton *)sender];
+}
+
+-(IBAction)rebootTiVo:(NSButton *) sender {
+	NSString *message = [NSString stringWithFormat:@"Are you sure you want to reboot your TiVo %@?", self.selectedTiVo.tiVo.name];
+	NSAlert *keyAlert = [NSAlert alertWithMessageText:message defaultButton:@"Cancel" alternateButton:@"Reboot" otherButton:nil informativeTextWithFormat:@"Warning: this will immediately reboot your TiVo, interrupting all downloads, recordings, etc. for several minutes."];
+	
+	NSInteger button = [keyAlert runModal];
+	if (button == NSAlertAlternateReturn) {
+		DDLogMajor(@"Rebooting TiVo %@",self.selectedTiVo);
+		[self.selectedTiVo reboot];
+	}
 }
 
 - (IBAction)serviceMenuSelected:(NSPopUpButton *)sender {
@@ -127,6 +131,25 @@ __DDLOGHERE__
 -(IBAction)buttonPressed:(NSButton *)sender {
 	if (!sender.title) return;
 	[self.selectedTiVo sendKeyEvent: sender.title];
+}
+
+-(IBAction) reportTiVoInfo: (id) sender {
+	NSString * name = self.selectedTiVo.tiVo.name;
+	__weak __typeof__(self) weakSelf = self;
+	if (!name) return;
+	[self.infoLoadingSpinner startAnimation:nil];
+	[self.selectedTiVo tiVoInfoWithCompletion:^(NSString *status) {
+		[self.infoLoadingSpinner stopAnimation:nil];
+		NSAlert *alert = [[NSAlert alloc] init];
+		[alert setMessageText:name];
+		[alert setInformativeText:status];
+		[alert addButtonWithTitle:@"OK"];
+		[alert setAlertStyle:NSAlertStyleInformational];
+
+		[alert beginSheetModalForWindow:weakSelf.window completionHandler:^(NSModalResponse returnCode) {
+		}];
+
+	}];
 }
 
 -(void) dealloc {

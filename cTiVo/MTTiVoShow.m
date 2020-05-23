@@ -323,7 +323,6 @@ __DDLOGHERE__
 
 -(void) setClipMetaDataId:(NSString *)clipMetaDataId {
 	//note we have to notify even if clipMetaData is nil, as this is the signal when we've completed one last check at timer expiry
-	BOOL notify = _clipMetaDataId != clipMetaDataId || self.isQueued;
 	if ((_clipMetaDataId == nil) && (clipMetaDataId != nil)) {
 		//newly arrived (although maybe from cache at startup)
 		NSTimeInterval timeLeft = self.timeLeftTillRPCInfoWontCome;
@@ -335,8 +334,8 @@ __DDLOGHERE__
 			DDLogMajor(@"SkipMode MetaData arrived %@for %@; %d:%04.1f (hr:min) after show ended", (timeLeft < 0) ? @"late " : @"", self, hrs, min);
 		}
 	}
-	_clipMetaDataId = clipMetaDataId;
-	if (notify) {
+	if (_clipMetaDataId != clipMetaDataId) {
+		_clipMetaDataId = clipMetaDataId;
 		DDLogDetail(@"Notifying skipMode from %@", self);
 		[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationFoundSkipModeInfo object:self];
 	} else {
@@ -347,18 +346,32 @@ __DDLOGHERE__
 -(void) setEdlList:(NSArray<MTEdl *> *)edlList {
 	if (_edlList != edlList) {
 		_edlList = edlList;
-		if (edlList.count > 0) {
+		if (edlList != nil) {
 			DDLogDetail(@"Got EDL for %@: %@", self, edlList);
 			[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationFoundSkipModeInfo object:self];
 		}
 	}
 }
 
+-(void) setMpegFormat:(MPEGFormat)mpegFormat {
+	BOOL changed = (mpegFormat != self.rpcData.format);
+	if (!self.rpcData) {
+		_rpcData = [MTRPCData new];
+	}
+	self.rpcData.format = mpegFormat;
+	if (changed) {
+		[[NSNotificationCenter defaultCenter] postNotificationName:kMTNotificationDetailsLoaded object:self];
+	}
+}
+
 -(void) setRpcData:(MTRPCData *)rpcData {
 	if (rpcData) {
+		if (_rpcData.format != MPEGFormatUnknown) {
+			rpcData.format = _rpcData.format;
+		}
 		_rpcData = rpcData;
 		self.episodeGenre = rpcData.genre;  //no conflict with TVDB
-		if (rpcData.edlList.count > 0) self.edlList = rpcData.edlList;
+		if (rpcData.edlList != nil) self.edlList = rpcData.edlList;
 		self.clipMetaDataId = rpcData.clipMetaDataId;  //notifies downloads
 		[self checkAllInfoSources];
 	}
@@ -400,11 +413,16 @@ __DDLOGHERE__
 	if (self.hasSkipModeInfo || self.hasSkipModeList) return YES;
 	if (self.skipModeFailed) return NO;
 	if (self.isSuggestion) return NO;
-	if ([tiVoManager skipModeForChannel:self.stationCallsign] != NSOnState) return NO;
-	if ([tiVoManager commercialsForChannel:self.stationCallsign] != NSOnState) return NO;
+	if ([self.imageString isEqualToString:@"deleted"]) return NO;
+	if (self.stationCallsign) {
+		if ([tiVoManager skipModeForChannel:self.stationCallsign] != NSOnState) return NO;
+		if ([tiVoManager commercialsForChannel:self.stationCallsign] != NSOnState) return NO;
+	}
 	NSString * genre = self.episodeGenre.lowercaseString;
-	if ([genre isEqualToString:@"news"] ) return NO; //allow news magazine
-	if ([genre isEqualToString:@"sports"] ) return NO;
+	if (genre) {
+		if ([genre isEqualToString:@"news"] ) return NO; //allow news magazine
+		if ([genre isEqualToString:@"sports"] ) return NO;
+	}
 	if (!self.inProgress.boolValue && timeLeft < 0) {
 		DDLogVerbose(@"No SkipMode for %@; Past deadline for SkipInfo to arrive by %0.1f", self, -timeLeft);
 		return NO;
@@ -754,18 +772,26 @@ __DDLOGHERE__
 }
 
 -(NSString *) h264String {
-    NSCellStateValue state = [tiVoManager failedPSForChannel:self.stationCallsign];
-    switch (state) {
-        case NSOffState: {
-            return @"-";
-        }
-        case NSOnState: {
-            return @"√";
-        }
-        default: {
-            return @"";
-        }
-    }
+	if (self.rpcData.format != MPEGFormatUnknown) {
+		if (self.rpcData.format == MPEGFormatH264) {
+			return @"✔";
+		} else {
+			return @"--";
+		}
+	} else {
+		NSCellStateValue state = [tiVoManager failedPSForChannel:self.stationCallsign];
+		switch (state) {
+			case NSOffState: {
+				return @"-";
+			}
+			case NSOnState: {
+				return @"√";
+			}
+			default: {
+				return @"";
+			}
+		}
+	}
 }
 
 -(NSString *)checkString:(BOOL) test {
@@ -906,14 +932,21 @@ __DDLOGHERE__
 
 -(NSNumber *) rpcSkipMode { //only for sorting in tables
 	if ([self hasSkipModeList]) return @3;
+	if (self.edlList.count > 0) return @5;
 	if ([self skipModeFailed]) return @2;
 	if ([self hasSkipModeInfo]) return @1;
-	if (self.edlList.count > 0) return @5;
+	if (self.protectedShow.boolValue) return @0;
 	if ([self mightHaveSkipModeInfo ]) return @4;
 	return @0;
 }
 
+-(MPEGFormat) mpegFormat {
+	return self.rpcData.format;
+}
+
 #pragma mark - Custom Setters; many for parsing
+#define kMTFirstName @"MTFirstName"
+#define kMTLastName @"MTLastName"
 
 -(NSString *)nameString:(NSDictionary *)nameDictionary
 {
@@ -1259,10 +1292,13 @@ static void * originalAirDateContext = &originalAirDateContext;
                 if (skipOne) {
                     skipOne = NO;
                 } else {
-                    foundKey = foundKey.lowercaseString;
-                    if ([keys[foundKey] length] == 0) {
-                        DDLogVerbose(@"No filename key: %@",foundKey);
-                        //found invalid or empty key so entire conditional fails and should be empty; ignore everything else, unless there's an OR (vertical bar)
+					NSString * foundValue = keys[foundKey.lowercaseString];
+					if (!foundValue) {
+                        DDLogReport(@"Unknown template key: %@",foundKey);
+                        [outStr appendFormat:@"(UNKNOWN KEYWORD-'%@')",foundKey];
+					} else if (foundValue.length == 0) {
+                        DDLogVerbose(@"Empty key: %@",foundKey);
+                        //found empty key so entire conditional fails and should be empty; ignore everything else, unless there's an OR (vertical bar)
                         [scanner scanCharactersFromSet:whitespaceSet intoString:nil];
                         if ([scanner scanString:@"|" intoString:nil]) {
                             //ah, we've got an alternative, so let's keep going
@@ -1270,8 +1306,8 @@ static void * originalAirDateContext = &originalAirDateContext;
                             return @"";
                         }
                     } else {
-                        DDLogVerbose(@"Swapping key %@ with %@",foundKey, keys[foundKey]);
-                        [outStr appendString:keys[foundKey]];
+                        DDLogVerbose(@"Swapping key %@ with %@",foundKey, foundValue);
+                        [outStr appendString:foundValue];
                     }
                 }
             }
@@ -2115,11 +2151,11 @@ NSString * fourChar(long n, BOOL allowZero) {
                 baseUrlString = @"http://image.tmdb.org/t/p/w780%@";
             }
         } else {
-            if (thumbnail) {
-                baseUrlString = @"http://thetvdb.com/banners/_cache/%@";
-            } else {
+//            if (thumbnail) {
+//                baseUrlString = @"http://thetvdb.com/banners/_cache/%@";
+//            } else {
                 baseUrlString = @"http://thetvdb.com/banners/%@";
-            }
+//            }
         }
         NSString * tvdbKey = [self mapTVDBKeyFromSource:source];
         if (!tvdbKey) {
@@ -2144,6 +2180,7 @@ NSString * fourChar(long n, BOOL allowZero) {
             } else {
                 NSInteger statusCode = ((NSHTTPURLResponse *) response).statusCode;
                 if ( statusCode == 404 || statusCode == 500 || statusCode == 503 ||data.length < 500) {
+                    DDLogMajor(@"Artwork unavailable for %@ from %@ , Error: %@", self.seriesTitle, urlString, @(statusCode));
                     [self failureHandlerForSource:source thumbnail:thumbnail];
                 } else {
                     [[NSFileManager defaultManager] createDirectoryAtPath:[filename directory] withIntermediateDirectories:YES attributes:nil error:nil];
@@ -2370,7 +2407,7 @@ NSString * fourChar(long n, BOOL allowZero) {
                 if (_thumbnailImage) {
                     self.thumbnailFile = [NSURL fileURLWithPath:self.userSpecifiedArtworkFile isDirectory:NO];
                 } else {
-                    [self invalidateCurrentThumbnail:[NSURL URLWithString:self.userSpecifiedArtworkFile]];
+                    [self invalidateCurrentThumbnail:[NSURL fileURLWithPath:self.userSpecifiedArtworkFile]];
                     self.userSpecifiedArtworkFile = nil;
                 }
             }

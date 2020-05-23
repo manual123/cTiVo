@@ -301,7 +301,8 @@ NSString *securityErrorMessageString(OSStatus status) { return (__bridge_transfe
  }
 
 -(BOOL) isActive {
-    return self.iStream.streamStatus == NSStreamStatusOpen;
+	return self.iStream.streamStatus == NSStreamStatusOpen ||
+		   self.iStream.streamStatus == NSStreamStatusOpening;
 }
 
 -(BOOL) streamClosed: (NSStream *) stream {
@@ -728,7 +729,7 @@ static NSRegularExpression * isFinalRegex = nil;
                    DDLogVerbose(@"Got BodyID");
                    strongSelf.tiVoSerialNumber = bodyId;
                    [strongSelf.delegate setTiVoSerialNumber:bodyId];
-				   [self.delegate connectionChanged];
+				   [strongSelf.delegate connectionChanged];
                    [strongSelf getAllShows];
                }
            }
@@ -758,7 +759,8 @@ static NSRegularExpression * isFinalRegex = nil;
 		   DDLogVerbose(@"Got All Shows from TiVo RPC: %@", [strongSelf maskTSN:jsonResponse]);
            NSArray <NSString *> * shows = jsonResponse[@"objectIdAndType"];
            BOOL isFirstLaunch = strongSelf.lastShowList == nil;
-           DDLogDetail (@"Got %lu shows from TiVo: %@", shows.count, shows);
+           DDLogMajor (@"Got %lu shows from TiVo", shows.count);
+		   DDLogDetail(@"Shows from TiVo RPC: %@", [shows componentsJoinedByString:@", "]);
            if (!strongSelf.showMap) {
                strongSelf.showMap = [NSMutableDictionary dictionaryWithCapacity:shows.count];
                [strongSelf recursiveGetShowInfoForShows: shows ];
@@ -788,24 +790,12 @@ static NSRegularExpression * isFinalRegex = nil;
                    [strongSelf.showMap removeObjectForKey:objectID];
                }
 			   [strongSelf recursiveGetShowInfoForShows: lookupDetails];
-			   if (newIDs.count + deletedShows.count > 0) {
-				   [strongSelf.delegate tivoReports:  shows.count withNewShows:newIDs atTiVoIndices:indices andDeletedShows:deletedShows];
-			   } else if (shows.count != self.lastShowList.count) {
-			   		//shouldn't be possible
-			   		[strongSelf.delegate rpcResync];
-				} else {
-					BOOL isSame = YES;
-					for (NSUInteger i = 0; i< shows.count; i++) {
-						if (![shows[i] isEqual:strongSelf.lastShowList[i]]) {
-							isSame = NO;
-							break;
-						}
-					}
-					if (isSame) {
-						[strongSelf.delegate rpcRecentChange];
-					} else {
-						[strongSelf.delegate rpcResync];
-					}
+			   if ((newIDs.count + deletedShows.count > 0) ||
+				   [shows isEqual:strongSelf.lastShowList] ||
+				   isFirstLaunch) {  //if any adds or delete, OR unchanged list
+				   [strongSelf.delegate tivoReports:  shows.count withNewShows:newIDs atTiVoIndices:indices andDeletedShows:deletedShows isFirstLaunch: isFirstLaunch];
+				} else { //problem...
+					[strongSelf.delegate rpcResync];
 			   }
            }
 		   strongSelf.lastShowList = shows;
@@ -1129,6 +1119,41 @@ static NSArray * imageResponseTemplate = nil;
 	   }];
 }
 
+-(void) rebootTiVo {
+	DDLogReport(@"Rebooting Tivo %@", self.delegate);
+	NSDictionary * data = @{
+							@"type": @"uiNavigate",
+							@"uri":  @"x-tivo:classicui:restartDvr",
+							};
+	__weak __typeof__(self) weakSelf = self;
+
+	[self sendRpcRequest:@"uiNavigate"
+				 monitor:NO
+				withData:data
+	   completionHandler:^(NSDictionary *jsonResponse, BOOL isFinal) {
+	  //using blank lines instead of indenting.
+	   [weakSelf afterDelay:5.0 launchBlock:^{
+		   
+	   [weakSelf sendKeyEvent: @"thumbsDown" withCompletion:^{
+		   
+	   [weakSelf sendKeyEvent: @"thumbsDown" withCompletion:^{
+		   
+	   [weakSelf sendKeyEvent: @"thumbsDown" withCompletion:^{
+		   
+	   [weakSelf sendKeyEvent: @"enter" withCompletion:^{
+		   
+	   DDLogReport(@"Finished rebooting Tivo %@", self.delegate);
+	   [weakSelf tearDownStreams];
+	   [weakSelf performSelector:@selector(launchServer) withObject:nil afterDelay:120]; //start trying to reconnect in 2 minutes
+
+	   }];
+	   }];
+	   }];
+	   }];
+	   }];
+	}];
+}
+
 -(void) channelListWithCompletion: (void (^)(NSDictionary <NSString *, NSString *> *)) completionHandler {
 	DDLogDetail(@"Asking what channels exist:");
 
@@ -1177,7 +1202,78 @@ static NSArray * imageResponseTemplate = nil;
 	   }];
 }
 
--(void) whatsOnSearchWithCompletion: (void (^)(MTWhatsOnType whatsOn, NSString * recordingID)) completionHandler {
+-(NSString *) describeNetwork: (NSDictionary <NSString *, NSString *> *) network  {
+	NSMutableString * outString = [NSMutableString string];
+	for (NSString * key in network.allKeys) {
+		if ([key isEqualToString:@"type"]) continue;
+		NSString * outKey = key;
+		if ([outKey isEqualToString:@"ipAddress"]) outKey = @"TCP/IP Address";
+		if ([outKey isEqualToString:@"interfaceState"]) outKey = @"Interface Status";
+		if ([outKey isEqualToString:@"mac"]) outKey = @"MAC Address";
+		if ([outKey isEqualToString:@"interfaceType"]) outKey = @"Interface Type";
+
+		if (network[key].length > 0) {
+			[outString appendFormat: @"    %@:  %@\n", outKey, network[key]];
+		}
+	}
+	return [outString copy];
+}
+
+-(void) tiVoInfoWithCompletion: (void (^)(NSString *)) completionHandler {
+	__weak __typeof__(self) weakSelf = self;
+
+	[self sendRpcRequest:@"bodyConfigSearch"
+				 monitor:NO
+				withData:@{}
+	   completionHandler:^(NSDictionary *jsonResponse, BOOL isFinal) {
+		DDLogDetail(@"sent bodyConfigSearch; got %@", jsonResponse);
+		NSArray * configs =jsonResponse[@"bodyConfig"];
+		NSDictionary * configJSON;
+
+		if ([configs isKindOfClass:[NSArray class]] && configs.count > 0) {
+			configJSON = configs[0];
+		} else if ([configs isKindOfClass:[NSDictionary class]]) {
+			configJSON = (NSDictionary *) configs;
+		} else {
+			if (completionHandler) completionHandler(@"");
+		}
+		NSMutableString * outString = [NSMutableString string];
+		NSString * diskSizeString = configJSON[@"userDiskSize"];
+		NSString * diskUsedString = configJSON[@"userDiskUsed"];
+		double megabyte = 1024*1024;
+		double diskSizeGB = diskSizeString.longLongValue/megabyte; //reported in 1K chunks
+		double diskUsedGB = diskUsedString.longLongValue/megabyte;
+		if (diskSizeGB > 1.0) { //probably Mini otherwise
+			int percentUsed = (int)(diskUsedGB / diskSizeGB * 100.0);
+			[outString appendFormat:@"Disk Space: \n    Total: %0.1lld GB\n    Used: %0lld GB (%d%%)\n\n",  (int64_t) diskSizeGB, (int64_t) diskUsedGB, percentUsed];
+		}
+		NSArray * networks = configJSON[@"networkInterface"];
+		if (networks && [networks isKindOfClass:[NSArray class]] && networks.count > 0) {
+			if (networks.count > 1) {
+				[outString appendString:@"Network Interfaces:\n"];
+				for (NSDictionary * network in networks) {
+					[outString appendFormat:@"\n%@", [weakSelf describeNetwork: network]];
+				}
+			} else {
+				[outString appendString:@"Network Interface:\n"];
+				[outString appendFormat:@"%@", [weakSelf describeNetwork: networks[0]]];
+			}
+			[outString appendString:@"\n"];
+		}
+		NSString * controls = configJSON[@"parentalControlsState"];
+		if (controls.length) {
+			[outString appendFormat:@"Parental Controls: %@\n\n", controls];
+		}
+		NSString * version = configJSON[@"softwareVersion"];
+		if (version.length) {
+			[outString appendFormat:@"Software Version: %@\n\n", version];
+		}
+		if (completionHandler) completionHandler([outString copy]);
+	   }];
+
+}
+
+-(void) whatsOnSearchWithCompletion: (void (^)(MTWhatsOnType whatsOn, NSString * recordingID, NSString * channelNumber)) completionHandler {
 	DDLogDetail(@"Asking What's on:");
 	[self sendRpcRequest:@"whatsOnSearch"
 				 monitor:NO
@@ -1187,20 +1283,25 @@ static NSArray * imageResponseTemplate = nil;
 		   NSDictionary * whatsOn = jsonResponse[@"whatsOn"][0];
 		   NSString * playback = whatsOn[@"playbackType"];
 		   NSString * recordingId = whatsOn[@"recordingId"];
+		   NSString * channelNumber = nil;
 		   MTWhatsOnType result = MTWhatsOnUnknown;
 		   if (!playback) {
 				DDLogReport(@"No playbackType?? got %@", jsonResponse);
 		   } else {
-			   NSArray * map = @[@"unknown", @"liveCache", @"recording", @"idle"];
+			   NSArray * map = @[@"unknown", @"liveCache", @"recording", @"idle", @"loopset"];
 			   NSInteger location = [map indexOfObject:playback];
 			   if (location == NSNotFound) {
 				   DDLogReport(@"Unknown playbackType: %@ in %@",playback, jsonResponse );
 			   } else {
 				   DDLogDetail(@"Found playbackType: %@ with %@",playback, recordingId );
 				   result = (MTWhatsOnType) location;
+				   NSDictionary * channelId = whatsOn[@"channelIdentifier"];
+				   if (channelId) {
+					   channelNumber = channelId[@"channelNumber"]; //nil if not there
+				   }
 			   }
 		   }
-		   if (completionHandler) completionHandler(result,recordingId);
+		   if (completionHandler) completionHandler(result,recordingId, channelNumber);
 	   }];
 }
 
@@ -1379,7 +1480,7 @@ static NSArray * imageResponseTemplate = nil;
 		if (!oldMetadataID) {
 		   DDLogMajor(@"Metadata just arrived for %@", rpcData);
 		} else {
-		   DDLogMajor(@"Revised commercial info found for %@", rpcData);
+		   DDLogMajor(@"Revised commercial metadata found for %@", rpcData);
 		}
 		__weak __typeof__(self) weakSelf = self;
 		[self retrieveSegments:rpcData.clipMetaDataId withCompletionHandler:^(NSArray * segments) {
@@ -1387,7 +1488,8 @@ static NSArray * imageResponseTemplate = nil;
 				DDLogReport(@"Segments failed %@ #: %@ contentId: %@", showInfo[@"title"], rpcData.recordingID, rpcData.clipMetaDataId);
 				rpcData.skipModeFailed = YES;
 			} else {
-		   		DDLogDetail(@"Segments just arrived for %@ #: %@ contentId: %@; %@", showInfo[@"title"], rpcData.recordingID, rpcData.clipMetaDataId,segments);
+				DDLogMajor(@"Segments just arrived for %@ #: %@ contentId: %@", showInfo[@"title"], rpcData.recordingID, rpcData.clipMetaDataId);
+				DDLogDetail(@"Segments: %@", segments);
 			}
 			rpcData.programSegments = segments;
 		   	[weakSelf.delegate receivedRPCData:rpcData];
@@ -1442,12 +1544,13 @@ static NSArray * imageResponseTemplate = nil;
 #ifdef testJumps
 	DDLogReport(@"%@",msg);
 #else
-	DDLogDetail(@"%@",msg);
+	DDLogMajor(@"%@",msg);
 #endif
 	
 }
 -(void) getRemainingPositionsInto: 	(NSMutableArray <NSNumber *> *) positions
 					   badJumps: (int) badJump
+						forShow: (NSString *) show
 		   withCompletionHandler: (void (^)(NSArray *)) completionHandler {
 	__weak __typeof__(self) weakSelf = self;
 	if (badJump >= 3) {
@@ -1458,10 +1561,10 @@ static NSArray * imageResponseTemplate = nil;
 	}
 	long long prevPosition = positions.firstObject.longLongValue;
 	[weakSelf retrievePositionWithCompletionHandler:^(long long position2, long long end2) {
-		DDLogReport(@"Current Position: %@ versus %@", @(position2), @(prevPosition));
 		if (positions.count == 1 &&
 			prevPosition - position2 > 30000 ) {
-			[weakSelf logString:@"Commercial Long Jump"];
+			[weakSelf logString:[NSString stringWithFormat:
+				@"Commercial Long Jump from %@ to %@ for %@", @(prevPosition), @(position2), show]];
 			weakSelf.longJump++;
 #ifdef testJumps
 			//abort after first jump if we're testing jumps
@@ -1484,8 +1587,8 @@ static NSArray * imageResponseTemplate = nil;
 			
 		[weakSelf retrievePositionWithCompletionHandler:^(long long position, long long end) {
 			
-		DDLogMajor(@"Next Position: %@ versus %@", @(position), @(prevPosition));
 		long long jumpSize = prevPosition - position;
+#ifdef testJumps
 		if (jumpSize < 30000) {
 			NSString * msg = [NSString stringWithFormat: @"Commercial Short Jump: %lld", jumpSize/1000];
 			[self logString:msg];
@@ -1494,21 +1597,24 @@ static NSArray * imageResponseTemplate = nil;
 			[self logString:@"Commercial Good Jump"];
 			self.goodJump++;
 		}
-#ifdef testJumps
 		//abort after first jump if we're testing jumps
 		if (completionHandler) completionHandler(positions);
 		return;
 #endif
 		if (jumpSize > 30000 ||
-			(position > 60000 && jumpSize > 0)) {
+			(position > 150000 && jumpSize > 0)) {
 			int recentShortJumps;
 			if (jumpSize > 30000) {
 				//we have moved a significant amount, so record
 				[positions insertObject:@(position) atIndex:0]; //reverse in file
+				[self logString:[NSString stringWithFormat:@"Good Jump from %lld to %lld for %@", prevPosition, position, show]];
+				self.goodJump++;
 				recentShortJumps = 0;
 			} else {
-				DDLogReport(@"Short jump %d from %lld to %lld for %@", (int)badJump, prevPosition, position, self);
 				recentShortJumps = badJump+1;
+				NSString * msg = [NSString stringWithFormat: @"Short Jump #%d: %lld from %lld to %lld for %@", (int)badJump, jumpSize/1000, prevPosition, position, show];
+				[self logString:msg];
+				self.shortJumps++;
 			}
 
 			if (position > 3000) {
@@ -1516,7 +1622,8 @@ static NSArray * imageResponseTemplate = nil;
 					if (success) {
 						[weakSelf afterDelay:delay2 launchBlock:^{
 							[weakSelf getRemainingPositionsInto:positions
-													 badJumps:recentShortJumps
+											           badJumps:recentShortJumps
+													    forShow:show
 										  withCompletionHandler:completionHandler];
 						} ];
 					} else {
@@ -1591,15 +1698,10 @@ static NSArray * imageResponseTemplate = nil;
 				//    [self sendKeyEvent: @"nowShowing" andPause :4.0];
 				[NSNotificationCenter postNotificationNameOnMainThread:kMTNotificationTiVoCommercialing object: self.delegate  ];
 				DDLogDetail(@"Getting SkipMode for: %@", rpcData);
-				[self findSkipModeRecursive:@0];
 				self.goodJump  = self.shortJumps = self.longJump = 0;
 				NSString * delayString = [[NSUserDefaults standardUserDefaults] stringForKey:@"RPCTime"  ];
 				if (delayString.length ==0) {
-					if (self.delegate.isOlderTiVo) {
-						delayString = @"2.0, 1.6, 1.0, 0.4";
-					} else {
-						delayString = @"0.5, 0.5, 0.5, 0.25";
-					}
+					delayString = @"2.0, 1.6, 1.0, 0.4";
 				}
 				NSArray <NSString *> * delays = [delayString componentsSeparatedByString:@","];
 				if (delays.count > 3) {
@@ -1610,6 +1712,7 @@ static NSArray * imageResponseTemplate = nil;
 				} else {
 					delay1 = delay2 = delay3 = delay4 = delayString.doubleValue;
 				}
+				[self findSkipModeRecursive:@0];
 
 			} else {
 				DDLogDetail(@"Another SkipMode Already in Progress: %@", self.skipModeQueueEDL);
@@ -1621,16 +1724,8 @@ static NSArray * imageResponseTemplate = nil;
 }
 
 -(void) findSkipModeRecursive: (NSNumber *) firstTryNumber {
-	BOOL lastTry = firstTryNumber.intValue >=
-
-#ifdef testJumps
-	19 //XXX 20 as experiment;
-#else
-	3 //try up to three times (due to interference)
-#endif
-	;
+	BOOL lastTry = firstTryNumber.intValue >= 3; //try up to three times (due to interference)
 	if (self.skipModeQueueEDL.count == 0) {
-		DDLogMajor(@"Finished SkipMode queue");
 		NSInteger tries = self.goodJump+self.shortJumps+self.longJump ;
 		NSString * result =[NSString stringWithFormat:@"After %@ attempts with delays %0.1f, %0.1f, %0.1f, %0.1f, the results were %@ Good; %@ Short; %@ Long. %0.0f%% good",  @(tries), delay1, delay2, delay3, delay4,  @(self.goodJump), @(self.shortJumps), @(self.longJump), 100.0*self.goodJump/(float)tries];
 #ifdef testJumps
@@ -1638,7 +1733,7 @@ static NSArray * imageResponseTemplate = nil;
 		NSAlert * jumpAlert = [NSAlert alertWithMessageText:@"SkipMode Test" defaultButton:@"OK" alternateButton: nil otherButton:nil informativeTextWithFormat:@"%@",result];
 		[jumpAlert runModal];
 #else
-		DDLogDetail(@"Jump Results = %@", result);
+		DDLogMajor(@"Finished SkipMode Queue; Jump Results = %@", result);
 #endif
 
 		[NSNotificationCenter postNotificationNameOnMainThread:kMTNotificationTiVoCommercialed object: self.delegate  ];
@@ -1650,7 +1745,7 @@ static NSArray * imageResponseTemplate = nil;
 	MTRPCData * rpcData = self.skipModeQueueEDL[0];
 	DDLogMajor(@"skipMode queue %@checking for commercials for %@", firstTryNumber.intValue == 0 ? @"" : @"re-", rpcData);
 	__weak __typeof__(self) weakSelf = self;
-
+	
 	[self findSkipModePointsForShow:rpcData withCompletionHandler:^{
 		__typeof__(self) strongSelf = weakSelf;
 		if (rpcData.edlList.count > 0 || lastTry) {
@@ -1680,7 +1775,7 @@ static NSArray * imageResponseTemplate = nil;
 	__weak __typeof__(self) weakSelf = self;
 	if (!rpcData) return;
 	//note: indenting change to avoid tower effect, each line break is a new block
-	[self whatsOnSearchWithCompletion:^(MTWhatsOnType previousWhatsOn, NSString *previousRecordingID) {
+	[self whatsOnSearchWithCompletion:^(MTWhatsOnType previousWhatsOn, NSString *previousRecordingID, NSString * channelNumber) {
 
 		[weakSelf playOnTiVo:rpcData.recordingID withCompletionHandler:^(BOOL complete) {
 			
@@ -1721,14 +1816,15 @@ static NSArray * imageResponseTemplate = nil;
 			
 		[weakSelf getRemainingPositionsInto: [NSMutableArray arrayWithObject:@(end)]
 								  badJumps:0
+		 							forShow:rpcData.series
 					  withCompletionHandler:^(NSArray * positions) {
 
 		DDLogDetail(@"Got positions of %@", positions);
 		rpcData.edlList = [NSArray edlListFromSegments:rpcData.programSegments andStartPoints:positions];
 	    if (rpcData.edlList) {
-		    DDLogDetail(@"For %@, got EDL %@", rpcData, rpcData.edlList);
+		    DDLogMajor(@"For %@, got EDL %@", rpcData, rpcData.edlList);
 	    } else {
-		    DDLogDetail(@"for %@, No EDL", rpcData);
+		    DDLogMajor(@"for %@, No EDL", rpcData);
 	    }
 	    [weakSelf sendKeyEvent: @"pause"  withCompletion:^{
 			

@@ -50,18 +50,21 @@
 
 -(NSDictionary *)descriptionDictionary;
 -(void) updateWithDescription:(NSDictionary *) newTiVo;
+-(BOOL) isEqualToDescription:(NSDictionary *) newTiVo;
 
 //RPC pass throughs
 -(void) reloadShowInfoForShows: (NSArray <MTTiVoShow *> *) shows;
 -(MTRPCData *)registerRPCforShow: (MTTiVoShow *) show;
 -(BOOL) rpcActive;
--(void) whatsOnWithCompletion:  (void (^)(MTWhatsOnType whatsOn, NSString * recordingID)) completionHandler;
+-(void) whatsOnWithCompletion:  (void (^)(MTWhatsOnType whatsOn, NSString * recordingID, NSString * channelNumber)) completionHandler;
+-(void) tiVoInfoWithCompletion:  (void (^)(NSString * status)) completionHandler;
 
 -(void) deleteTiVoShows: (NSArray <MTTiVoShow *> *) shows;
 -(void) playShow: (MTTiVoShow *) show;
 -(void) stopRecordingTiVoShows: (NSArray <MTTiVoShow *> *) shows;
 -(void) sendKeyEvent: (NSString *) keyEvent;
 -(void) sendURL: (NSString *) URL;
+-(void) reboot;
 
 -(void) loadSkipModeInfoForShow:(MTTiVoShow *) show;
 -(void) findCommercialsForShow:(MTTiVoShow *) show interrupting:(BOOL) interrupt; //results when rpcData is set

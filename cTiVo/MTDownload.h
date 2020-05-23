@@ -7,7 +7,6 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "iTunes.h"
 #import "MTTiVo.h"
 #import "MTFormat.h"
 #import "MTTiVoShow.h"
@@ -28,11 +27,9 @@
 @property (nonatomic, strong)   MTFormat *encodeFormat;  //changeable until download starts
 
 @property (nonatomic, strong)  NSNumber *genTextMetaData,
-#ifndef deleteXML
-                                        *genXMLMetaData,
-                                        *includeAPMMetaData,
-#endif
-                                        *exportSubtitles;
+										*useTransportStream,
+                                        *exportSubtitles,
+										*deleteAfterDownload;
 @property (nonatomic, assign) BOOL      addToiTunesWhenEncoded,
 										useSkipMode,
 										skipCommercials,
@@ -51,6 +48,7 @@
 
 -(void) launchDownload;  //actually launch the download process
 -(void) launchPostCommercial; //ok to launch now
+-(void) skipModeCheck;
 -(void)notifyUserWithTitle:(NSString *) title subTitle: (NSString*) subTitle ;   //download  notification
 
 -(BOOL) isSimilarTo: (MTDownload *) testDownload;

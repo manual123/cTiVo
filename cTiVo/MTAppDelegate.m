@@ -16,7 +16,6 @@
 #import "MTHelpViewController.h"
 #import "MTTiVo.h"
 #import "MTSubscriptionList.h"
-#import "PFMoveApplication.h"
 #import "NSDate+Tomorrow.h"
 #import "MTGCDTimer.h"
 #import "MTiTunes.h"
@@ -28,6 +27,12 @@
 #else
 #import "CrashlyticsLogger.h"
 #import "Crashlytics/crashlytics.h"
+#endif
+
+#ifndef MAC_APP_STORE
+#import "Sparkle/SUUpdater.h"
+#import "PFMoveApplication.h"
+#import "NSTask+RunTask.h"
 #endif
 
 #import "NSNotificationCenter+Threads.h"
@@ -53,6 +58,7 @@ void signalHandler(int signal)
 
 @interface MTAppDelegate  () {
 	IBOutlet NSMenuItem *refreshTiVoMenuItem, *iTunesMenuItem, *markCommercialsItem, *skipCommercialsItem, *pauseMenuItem;
+	__weak IBOutlet NSMenuItem *checkForUpdatesMenuItem;
 	IBOutlet NSMenu *optionsMenu;
     IBOutlet NSView *formatSelectionTable;
     IBOutlet NSTableView *exportTableView;
@@ -76,6 +82,9 @@ void signalHandler(int signal)
 @property (nonatomic, strong) NSDate * lastPseudoTime;
 @property (nonatomic, strong) NSOpenPanel* myOpenPanel;
 @property (nonatomic, assign) BOOL myOpenPanelIsTemp;
+#ifndef MAC_APP_STORE
+@property (nonatomic, strong) SUUpdater * sparkleUpdater;
+#endif
 
 @end
 
@@ -83,18 +92,87 @@ void signalHandler(int signal)
 
 + (DDLogLevel)ddLogLevel { return ddLogLevel; }+ (void)ddSetLogLevel:(int)logLevel {ddLogLevel = logLevel;}
 
+- (void)awakeFromNib {
+#ifdef MAC_APP_STORE
+	[[checkForUpdatesMenuItem menu] removeItem:checkForUpdatesMenuItem];
+#else
+	self.sparkleUpdater = [[SUUpdater alloc] init];
+	checkForUpdatesMenuItem.target = self;
+	checkForUpdatesMenuItem.enabled = YES;
+	checkForUpdatesMenuItem.action = @selector(checkForUpdates:);
+#endif
+}
 
-- (void)applicationDidFinishLaunching:(NSNotification *)aNotification
-{
+- (IBAction)checkForUpdates:(id)sender {
+#ifndef MAC_APP_STORE
+	[[SUUpdater sharedUpdater] checkForUpdates:sender];
+#endif
+}
+
+- (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
+	
+	//first check if we're migrating from MAS to direct version
+	// if so, copy prefs and cache over
+	//(other direction is handled by OS migration
 	NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+#ifndef SANDBOX
+	NSFileManager *fm = [NSFileManager defaultManager];
+	NSString * prefPath = [@"~/Library/Preferences/com.cTiVo.cTiVo.plist" stringByExpandingTildeInPath];
+	NSString * containerPrefPath = [@"~/Library/Containers/com.cTiVo.cTiVo/Data/Library/Preferences/com.cTiVo.cTiVo.plist" stringByExpandingTildeInPath];
+	if (![fm fileExistsAtPath: prefPath] &&  [fm fileExistsAtPath: containerPrefPath]) {
+		//
+		if ([defaults objectForKey:kMTQueue]) {
+			//defaults persistence wierdness; need to run again from scratch
+			NSLog(@"cTiVo run too soon after last time!  Try again!");
+			NSAlert *quitAlert = [NSAlert alertWithMessageText:@"cTiVo was run too soon after cTV exited." defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"You'll need to run it again now."];
+			[quitAlert runModal];
+			[[NSApplication sharedApplication] terminate:nil];
+		}
+		NSString * tempDefaultsName = @"com.cTiVo.cTiVoMAS";
+		NSString * prefs = [NSTask runProgram:@"/usr/bin/defaults"
+							withArguments:@[@"import",
+											tempDefaultsName,
+											containerPrefPath]];
+		
+		if (prefs.length > 0) NSLog(@"Tried to import prefs, but got: %@", prefs);
+		NSDictionary<NSString *,id> * prefsMAS = [defaults persistentDomainForName:tempDefaultsName];
+		for (NSString * key in prefsMAS.allKeys ) {
+			[defaults setObject:prefsMAS[key] forKey:key];
+		}
+		NSLog (@"Migrated Preferences from Mac App Store version: %@",[prefsMAS.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]);
+//
+		//now clean up...
+		[fm removeItemAtPath:[@"~/Library/Preferences/com.cTiVo.cTiVoMAS.plist" stringByExpandingTildeInPath]  error:nil ];
+		
+		//now move caches directory back to Direct location
+		NSString * oldCachesPath = [@"~/Library/Containers/com.cTiVo.cTiVo/Data/Library/Caches/com.cTiVo.cTiVo" stringByExpandingTildeInPath];
+		NSString * newCachesPath = [@"~/Library/Caches/com.cTiVo.cTiVo" stringByExpandingTildeInPath];
+		if (![fm fileExistsAtPath: newCachesPath] &&  [fm fileExistsAtPath: oldCachesPath]) {
+			[fm moveItemAtPath:oldCachesPath toPath:newCachesPath error:nil];
+		}
+		
+		NSString * oldLogPath = [@"~/Library/Containers/com.cTiVo.cTiVo/Data/Library/Logs/cTiVo" stringByExpandingTildeInPath];
+		NSString * newLogPath = [@"~/Library/Logs/cTiVo" stringByExpandingTildeInPath];
+		if (![fm fileExistsAtPath: newLogPath] &&  [fm fileExistsAtPath: oldLogPath]) {
+			[fm moveItemAtPath:oldLogPath toPath:newLogPath error:nil];
+		}
+
+		//and delete the sandbox Container; will be recreated if they run that app again.
+		[fm removeItemAtPath:[@"~/Library/Containers/com.cTiVo.cTiVo" stringByExpandingTildeInPath] error:nil ];
+	}
+#endif
+
 	[defaults registerDefaults:@{ @"NSApplicationCrashOnExceptions": @YES }];
+	
 #ifndef DEBUG
     if (![defaults boolForKey:kMTCrashlyticsOptOut]) {
         [Fabric with:@[[Crashlytics class]]];
     }
-#endif
+#ifndef MAC_APP_STORE
 	PFMoveToApplicationsFolderIfNecessary();
-    CGEventRef event = CGEventCreate(NULL);
+#endif
+#endif
+	CGEventRef event = CGEventCreate(NULL);
     CGEventFlags modifiers = CGEventGetFlags(event);
     CFRelease(event);
 	[MTLogWatcher sharedInstance]; //self retained
@@ -129,8 +207,31 @@ void signalHandler(int signal)
 	[fileLogger setLogFormatter:fileLogFormat];
     [DDLog addLogger:fileLogger];
 
-    DDLogReport(@"Starting cTiVo; version: %@", [[[NSBundle mainBundle] infoDictionary] valueForKey:@"CFBundleVersion"]);
+    DDLogReport(@"Starting " kcTiVoName @"%@; version: %@",
+#ifdef SANDBOX
+	@" Sandboxed",
+#else
+	@"",
+#endif
+[[[NSBundle mainBundle] infoDictionary] valueForKey:@"CFBundleVersion"]);
 
+#ifdef SANDBOX
+	//in case we're porting from non-sandboxed:
+	NSString * oldTempPath = [defaults objectForKey:kMTTmpFilesPath];
+	if (oldTempPath.length) {  //remember in case we go back to non-sandboxed
+		[defaults setObject:oldTempPath forKey: @"OldTmpFilePath"];
+		[defaults setObject:nil forKey: kMTTmpFilesPath];
+	}
+#else
+	NSString * tempPath = [defaults objectForKey:kMTTmpFilesPath];
+	if (!tempPath.length) {
+		//maybe coming back from sandboxed
+		NSString * oldTmpPath= [defaults objectForKey: @"OldTmpFilePath"];
+		if (oldTmpPath.length) {
+			[defaults setObject:oldTmpPath forKey: kMTTmpFilesPath];
+			[defaults setObject:nil forKey: @"OldTmpFilePath"];
+		}
+	}
 	//Upgrade old defaults
 	NSString * oldtmp = [defaults stringForKey:kMTTmpFilesDirectoryObsolete];
 	if (oldtmp) {
@@ -144,6 +245,7 @@ void signalHandler(int signal)
 		}
 		[defaults setObject:nil forKey: kMTTmpFilesDirectoryObsolete];
 	}
+
 	if ([defaults stringForKey:kMTFileNameFormat].length == 0) {
 		NSString * newDefaultFileFormat = kMTcTiVoDefault;
 		if ([defaults boolForKey: kMTMakeSubDirsObsolete]) {
@@ -151,19 +253,24 @@ void signalHandler(int signal)
 			[defaults setObject:nil forKey: kMTMakeSubDirsObsolete];
 		}
 		[defaults setObject:newDefaultFileFormat forKey: kMTFileNameFormat];
-		
 	}
 
+	if ([defaults boolForKey:kMTSkipCommercials]) {
+		//transition from 3.1 to 3.3.1
+		[defaults setBool:NO forKey:kMTMarkCommercials];
+	}
+#endif
+
 	NSDictionary *userDefaultsDefaults = [NSDictionary dictionaryWithObjectsAndKeys:
-										  @NO, kMTShowCopyProtected,
-										  @YES, kMTShowSuggestions,
+										  @YES, kMTShowCopyProtected,
+										  @NO, kMTShowSuggestions,
 										  @YES, kMTShowFolders,
-										  @NO, kMTPreventSleep,
+										  @YES, kMTPreventSleep,
 										  @kMTMaxDownloadRetries, kMTNumDownloadRetries,
 										  @0, kMTUpdateIntervalMinutesNew,
 										  @NO, kMTiTunesDelete,
 										  @NO, kMTHasMultipleTivos,
-										  @NO, kMTMarkCommercials,
+										  @YES, kMTMarkCommercials,
                                           @YES, kMTiTunesIcon,
 										  @YES, kMTUseMemoryBufferForDownload,
 										  // @NO, kMTAllowDups, future
@@ -184,9 +291,10 @@ void signalHandler(int signal)
 										  @(kMTDefaultDelayForSkipModeInfo), kMTWaitForSkipModeInfoTime,
 										  [NSDate tomorrowAtTime:1*60], kMTScheduledStartTime,  //start at 1AM tomorrow]
                                           [NSDate tomorrowAtTime:6*60], kMTScheduledEndTime,  //end at 6AM tomorrow],
+										  @YES, kMTScheduledSkipModeScan,
 										  [NSDate tomorrowAtTime:30], kMTScheduledSkipModeScanStartTime, //start SkipMode scan at 12:30AM tomorrow]
 										  [NSDate tomorrowAtTime:5*60+45], kMTScheduledSkipModeScanEndTime, //end SkipMode scan at 5:45AM tomorrow]
-										  @0, kMTCommercialStrategy,
+										  @3, kMTCommercialStrategy,
 										  nil];
 
     [defaults registerDefaults:userDefaultsDefaults];
@@ -207,15 +315,23 @@ void signalHandler(int signal)
 	gettingMediaKey = NO;
 	signal(SIGPIPE, &signalHandler);
 	signal(SIGABRT, &signalHandler );
-	
+
 	//Turn off check mark on Pause/Resume queue menu item
 	[pauseMenuItem setOnStateImage:nil];
-
+	//Don't reference iTunes on Catalina
+	if (@available(macOS 10.15, *)) {
+		iTunesMenuItem.title = [iTunesMenuItem.title stringByReplacingOccurrencesOfString:@"iTunes" withString:@"TV" ];
+		iTunesMenuItem.toolTip = [iTunesMenuItem.toolTip stringByReplacingOccurrencesOfString:@"iTunes" withString:@"Apple's TV app" ];
+	}
 	[_tiVoGlobalManager addObserver:self forKeyPath:@"selectedFormat" options:NSKeyValueObservingOptionInitial context:nil];
 	[_tiVoGlobalManager addObserver:self forKeyPath:@"processingPaused" options:NSKeyValueObservingOptionInitial context:nil];
 	[defaults addObserver:self forKeyPath:kMTSkipCommercials options:NSKeyValueObservingOptionNew context:nil];
 	[defaults addObserver:self forKeyPath:kMTMarkCommercials options:NSKeyValueObservingOptionNew context:nil];
+#ifdef SANDBOX
+	[self validateTmpDirectory];
+#else
 	[defaults addObserver:self forKeyPath:kMTTmpFilesPath options:NSKeyValueObservingOptionInitial context:nil];
+#endif
 	[defaults addObserver:self forKeyPath:kMTDownloadDirectory options:NSKeyValueObservingOptionInitial context:nil];
 	if (@available(macOS 10.10.3, *)) {
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(thermalStateChanged:) name:NSProcessInfoThermalStateDidChangeNotification object:nil];
@@ -232,15 +348,18 @@ void signalHandler(int signal)
             name: NSWorkspaceDidWakeNotification object: NULL];
 
 	//Initialize tmp directory
-	[self checkVolumes:nil];
 	[self clearTmpDirectory];
 	
+#ifdef SANDBOX
+	//get permission for various older download folders:
+	[self accessCachedBookMarks];
+#endif
+	[tiVoManager launchMetadataQuery];
     //Make sure details and thumbnails directories are available
-    [self checkDirectoryAndPurge:[tiVoManager tivoTempDirectory]];
+	[self checkDirectoryAndPurge:[tiVoManager tivoTempDirectory]];
     [self checkDirectoryAndPurge:[tiVoManager tvdbTempDirectory]];
     [self checkDirectoryAndPurge:[tiVoManager detailsTempDirectory]];
 
-	
 	saveQueueTimer = [NSTimer scheduledTimerWithTimeInterval: (5 * 60.0) target:tiVoManager selector:@selector(saveState) userInfo:nil repeats:YES];
 	self.lastPseudoTime = [NSDate date];
     self.pseudoTimer = [NSTimer scheduledTimerWithTimeInterval: pseudoEventTime target:self selector:@selector(launchPseudoEvent) userInfo:nil repeats:YES];  //every minute to clear autoreleasepools when no user interaction
@@ -268,6 +387,19 @@ void signalHandler(int signal)
 	[self.tiVoGlobalManager startTiVos];
 	DDLogDetail(@"Finished appDidFinishLaunch");
  }
+
+-(BOOL) alreadyRunning { //returns true if another instance of cTiVo is running
+	NSArray <NSRunningApplication *> * apps = [[NSWorkspace sharedWorkspace] runningApplications];
+	int myProcess = [[NSProcessInfo  processInfo]  processIdentifier];
+	for (NSRunningApplication * app in apps) {
+		if ([app.bundleIdentifier isEqualToString: @"com.ctivo.ctivo"]) {
+			if (app.processIdentifier != myProcess ) {
+				return YES;
+			}
+		}
+	}
+	return NO;
+}
 
 -(void) systemSleep: (NSNotification *) notification {
 	DDLogReport(@"System Sleeping!");
@@ -376,6 +508,25 @@ NSObject * assertionID = nil;
 	[self validateTmpDirectory];
 }
 
+-(BOOL) moveCacheFile: (NSURL *) url to: (NSURL *) toFolder {
+	NSFileManager * fm = [NSFileManager defaultManager];
+	NSURL * newURL = [toFolder URLByAppendingPathComponent:url.lastPathComponent ];
+	NSError * error = nil;
+	if (![fm moveItemAtURL:url
+					 toURL:newURL
+					 error:&error]) {
+		if (error.code == 516) {
+			DDLogVerbose(@"When moving %@ to %@, already there?", url, newURL);
+			[fm removeItemAtURL:url error:&error]; //no need to keep old one
+		} else {
+			DDLogReport(@"Could not move cache file %@ to %@: %@", url, newURL, error);
+			return NO;
+		}
+	}
+	return YES;
+}
+
+
 -(void) checkDirectoryAndPurge: (NSURL *) directory  {
     NSFileManager *fm = [NSFileManager defaultManager];
 
@@ -413,13 +564,14 @@ NSObject * assertionID = nil;
 }
 
 -(NSString *) defaultDownloadDirectory {
-	return [NSString pathWithComponents:@[NSHomeDirectory(),kMTDefaultDownloadDir]];
-	//note this will fail in sandboxing. Need something like...
-	//		NSArray * movieDirs = [[NSFileManager defaultManager] URLsForDirectory:NSMoviesDirectory inDomains:NSUserDomainMask];
-	//		if (movieDirs.count >0) {
-	//			NSURL *movieURL = (NSURL *) movieDirs[0];
-	//			return [movieURL URLByAppendingPathComponent:@"TiVoShows"].path;
-	//      }
+	NSArray <NSString *> *movieDirs = NSSearchPathForDirectoriesInDomains(NSMoviesDirectory, NSUserDomainMask, YES);
+	if (movieDirs.count >0) {
+		NSString *moviePath = movieDirs[0];
+		return [moviePath stringByAppendingPathComponent:@"TiVoShows"];
+	} else {
+		DDLogReport(@"Movie Directory not available??");
+		return [NSString pathWithComponents:@[@"~/Movies/TiVoShows/"]];
+	}
 }
 
 -(NSString *) defaultTmpDirectory {
@@ -489,7 +641,7 @@ NSObject * assertionID = nil;
 	openPanel.prompt = @"Choose";
 	openPanel.delegate = self;
 	self.myOpenPanelIsTemp = isTemp;
-	[openPanel setTitle:[NSString stringWithFormat:@"Select Directory for %@ cTiVo Files", dirType]];
+	[openPanel setTitle:[NSString stringWithFormat:@"Select Directory for %@ " kcTiVoName @" Files", dirType]];
 
 	NSArray * views; //get default button from XIB.
 	if ([[NSBundle mainBundle] loadNibNamed:@"MTOpenPanelDefaultView" owner:self topLevelObjects:&views]) {
@@ -512,11 +664,28 @@ NSObject * assertionID = nil;
 	NSWindow * window = [NSApp keyWindow] ?: _mainWindowController.window;
 	[self.myOpenPanel beginSheetModalForWindow:window completionHandler:^(NSInteger returnCode){
 		NSString *directoryName  = nil;
+#ifdef SANDBOX
+		NSData * newBookMark = nil;
+#endif
 		switch (returnCode) {
-			case NSModalResponseOK:
-				directoryName = self.myOpenPanel.URL.path;
-				DDLogMajor(@"User chose %@ directory: %@.", dirType, directoryName);
+			case NSModalResponseOK: {
+				NSURL * newURL = self.myOpenPanel.URL;
+				directoryName = newURL.path;
+				DDLogReport(@"User chose %@ directory: %@.", dirType, directoryName);
+#ifdef SANDBOX
+				NSError * error = nil;
+				newBookMark = [newURL
+					bookmarkDataWithOptions: NSURLBookmarkCreationWithSecurityScope
+					includingResourceValuesForKeys:nil
+					relativeToURL:nil
+					error:&error];
+				[self cacheBookmark:newBookMark forURL:newURL  ];
+				if (error) {
+					DDLogReport(@"Could not create bookmark for %@", newURL);
+				}
+#endif
 				break;
+			}
 			case NSModalResponseCancel:
 				directoryName = oldDir;
 				DDLogMajor(@"%@ directory selection cancelled", dirType);
@@ -533,7 +702,12 @@ NSObject * assertionID = nil;
 			if (isTemp) {
 				[[NSUserDefaults standardUserDefaults] setObject:directoryName forKey:kMTTmpFilesPath];
 			} else {
+#ifdef SANDBOX
+				[[NSUserDefaults standardUserDefaults] setObject:newBookMark forKey:kMTDownloadDirBookmark];
+#else
 				[[NSUserDefaults standardUserDefaults] setObject:directoryName forKey:kMTDownloadDirectory];
+				tiVoManager.downloadDirectory = directoryName;
+#endif
 			}
 		} else {
 			DDLogMajor(@" %@ directory selection cancelled", dirType);
@@ -549,37 +723,137 @@ NSObject * assertionID = nil;
 	}
 }
 
-//for future sandboxing
-//-(NSURL*) urlForBookmark:(NSData*)bookmark {
-//	if (!bookmark) return nil;
-//	BOOL bookmarkIsStale = NO;
-//	NSError* theError = nil;
-//	NSURL* bookmarkURL = [NSURL URLByResolvingBookmarkData:bookmark
-//												   options:NSURLBookmarkResolutionWithoutUI
-//											 relativeToURL:nil
-//									   bookmarkDataIsStale:&bookmarkIsStale
-//													 error:&theError];
-//
-//	if (bookmarkIsStale || (theError != nil)) {
-//		// Handle any errors
-//		return nil;
-//	}
-//	return bookmarkURL;
-//}
-//
-//    if (!tmpDirURL) {
-//NSError *error = nil;
-//tmpDirURL = [fm URLForDirectory:NSItemReplacementDirectory
-//					   inDomain:NSUserDomainMask
-//			  appropriateForURL:nil
-//						 create:YES
-//						  error:&error ];
+#ifdef  SANDBOX
+-(NSURL *)resolveStoredBookmark: (NSData *) bookMark forType:(NSString *) bookMarkKey uponRenewal: (void (^)(NSData * newBookMark))renewedBookmark {
+	//returns URL, which has been started under security scope, so we can see files
+	//note, we actually don't ever stop using to stop using (same for tmp)
+
+	if (bookMark == nil) {
+		DDLogReport(@"No bookmark stored for %@", bookMarkKey);
+		return nil;
+	}
+	BOOL isStale = NO;
+	NSError * error = nil;
+	NSURL * url = [NSURL URLByResolvingBookmarkData:bookMark
+											options:NSURLBookmarkResolutionWithSecurityScope
+									  relativeToURL:nil
+								bookmarkDataIsStale:&isStale
+											  error:&error];
+	if (error != nil) {
+		DDLogReport(@"Error resolving URL from %@ bookmark: %@", bookMarkKey, error);
+		return nil;
+	} else if (isStale) {
+		if ([url startAccessingSecurityScopedResource]) {
+			DDLogReport(@"Attempting to renew stale %@ bookmark for %@", bookMarkKey, url);
+			// NOTE: This is the bit that fails, a 256 error is
+			//       returned due to a deny file-read-data from sandboxd
+			bookMark = [url bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
+					 includingResourceValuesForKeys:nil
+									  relativeToURL:nil
+											  error:&error];
+			if (error != nil) {
+				[url stopAccessingSecurityScopedResource];
+				DDLogReport(@"Failed to renew %@ bookmark: %@", bookMarkKey, error);
+				return nil;
+			}
+			if (renewedBookmark) renewedBookmark(bookMark);
+			DDLogReport(@"Bookmark renewed, yay.");
+		} else {
+			DDLogReport(@"Could not start using the bookmarked, stale %@ url: %@", bookMarkKey, url);
+			return nil;
+		}
+	} else if (! [url startAccessingSecurityScopedResource]) {
+		DDLogReport(@"Could not start using the bookmarked %@ url: %@", bookMarkKey, url);
+		return nil;
+	}
+	DDLogDetail(@"Bookmarked %@ url %@ resolved successfully!", bookMarkKey, url);
+	return url;
+}
+
+#define maxCacheSize 7
+-(void) cacheBookmark: (NSData *) bookmark forURL: (NSURL *) url{
+	if (!bookmark) return;
+	BOOL found = NO;
+	NSArray <NSData *> * oldCache = [[NSUserDefaults standardUserDefaults ] objectForKey:kMTRecentDownloadBookMarks];
+	NSMutableArray <NSData *> * newCache = [NSMutableArray arrayWithCapacity:MIN(oldCache.count+1,maxCacheSize)];
+	[newCache addObject:bookmark];
+	for (NSData * oldBookmark in oldCache) {
+		if (newCache.count >= maxCacheSize) {
+			break;
+		} else if (found) {
+			[newCache addObject:oldBookmark]; //just copy the rest
+		} else { //check not the same as url
+			BOOL isStale = NO;
+			NSError * error = nil;
+			NSURL * oldURL = [NSURL URLByResolvingBookmarkData:oldBookmark
+													   options:NSURLBookmarkResolutionWithSecurityScope
+												 relativeToURL:nil
+										   bookmarkDataIsStale:&isStale
+														 error:&error];
+			if (error != nil || isStale || !oldURL) {
+				DDLogReport(@"Error resolving old URL from %@bookmark: %@", isStale ? @"stale ":@"",error);
+			} else if ([oldURL isEqual:url]) {
+				DDLogReport(@"Reusing bookmark for URL: %@",url);
+				found = YES;
+			} else 	{
+				[newCache addObject:oldBookmark];
+			}
+		}
+	}
+	[[NSUserDefaults standardUserDefaults] setObject:newCache forKey:kMTRecentDownloadBookMarks];
+	[tiVoManager launchMetadataQuery];
+}
+
+-(void) accessCachedBookMarks {
+	NSArray <NSData *> * cache = [[NSUserDefaults standardUserDefaults ] objectForKey:kMTRecentDownloadBookMarks];
+	NSMutableArray <NSData *> * newCache = [NSMutableArray arrayWithCapacity:cache.count];
+	NSString * downloadDir =[tiVoManager downloadDirectory];
+	if (!downloadDir) {
+		DDLogReport(@"No download directory??");
+		return;
+	}
+	NSURL * downURL = [NSURL fileURLWithPath:downloadDir isDirectory:YES];
+	if (!downURL) {
+		DDLogReport(@"Invalid download dir for URL: %@??", downloadDir);
+		return;
+	}
+	NSMutableSet <NSURL *> * urls = [NSMutableSet setWithObject:downURL];
+	__block BOOL didChange = NO;
+	for (NSData * oldBookmark in cache) {
+		__block NSData * tempBookmark = oldBookmark;
+		NSURL * url = [self resolveStoredBookmark:oldBookmark forType:@"cached" uponRenewal:^(NSData *newBookmark) {
+			tempBookmark = newBookmark;
+			didChange = YES;
+		}];
+		if (tempBookmark && url && ![urls containsObject:url]) {
+			[newCache addObject:tempBookmark];
+			[urls addObject:url];
+		}
+	}
+	if (didChange)[[NSUserDefaults standardUserDefaults] setObject:newCache forKey:kMTRecentDownloadBookMarks];
+}
+#endif
 
 -(void)validateDownloadDirectory {
-	NSString *downloadDir = [[NSUserDefaults standardUserDefaults] stringForKey:kMTDownloadDirectory];
-	if ([downloadDir isEquivalentToPath: [[NSUserDefaults standardUserDefaults] stringForKey:kMTTmpFilesPath]] ) {
-			//Oops; user confused temp dir with download dir
-			[self promptForNewDirectory:downloadDir withMessage:@"Your temp directory %@ needs to be separate from your download directory." isProblem: YES isTempDir:NO];
+	NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+#ifdef SANDBOX
+	if ([defaults objectForKey:kMTDownloadDirBookmark]) { //if URL bookmark exists, then it overrides download dir
+		NSURL * downloadURL = [self resolveStoredBookmark:[defaults objectForKey:kMTDownloadDirBookmark]  forType:@"Download Directory" uponRenewal:^(NSData *newBookMark) {
+			[defaults setObject: newBookMark forKey:kMTDownloadDirBookmark];
+		} ];
+		DDLogMajor(@"Sandbox found %@: %@",kMTDownloadDirBookmark, downloadURL);
+		NSString *oldDownloadDir = [defaults stringForKey:kMTDownloadDirectory];
+		NSString * newDownloadDir = downloadURL.path;
+		if (![oldDownloadDir isEqualToString:newDownloadDir]) { //avoid recursion
+			tiVoManager.downloadDirectory =  downloadURL.path;
+		}
+	}
+#endif
+
+	 NSString *downloadDir = [defaults stringForKey:kMTDownloadDirectory];
+	 if ([downloadDir isEquivalentToPath: [[NSUserDefaults standardUserDefaults] stringForKey:kMTTmpFilesPath]] ) {
+		//Oops; user confused temp dir with download dir
+		[self promptForNewDirectory:downloadDir withMessage:@"Your temp directory %@ needs to be separate from your download directory." isProblem: YES isTempDir:NO];
 	} else {
 		[self validateDirectoryShared:downloadDir isTempDir:NO];
 	}
@@ -587,7 +861,7 @@ NSObject * assertionID = nil;
 
 -(void)validateTmpDirectory {
 	//Validate users choice for tmpFilesDirectory
-	NSString *tmpdir = [[NSUserDefaults standardUserDefaults] stringForKey:kMTTmpFilesPath];
+	NSString *tmpdir = tiVoManager.tmpFilesDirectory;
 	if ([tmpdir isEquivalentToPath: [self defaultDownloadDirectory]] ||
 	    [tmpdir isEquivalentToPath: [[NSUserDefaults standardUserDefaults] stringForKey:kMTDownloadDirectory]] ) {
 			//Oops; user confused temp dir with download dir
@@ -605,7 +879,7 @@ NSObject * assertionID = nil;
 	BOOL isDir = YES;
 	if (![fm fileExistsAtPath:dirPath isDirectory:&isDir]) {
 		NSError *error = nil;
-		
+
 		if ([dirPath hasPrefix:@"/Volumes"]) {
 			NSArray <NSString *> * pathComponents = [dirPath pathComponents];
 			if (pathComponents.count > 1) {
@@ -630,11 +904,32 @@ NSObject * assertionID = nil;
 		[self promptForNewDirectory:dirPath withMessage:@"%@ is a file, not a directory" isProblem: YES isTempDir:YES];
 		return;
 	}
+
+	//Now check for read permission
+	NSURL * dirURL = [NSURL fileURLWithPath:dirPath ];
+	NSError * error = nil;
+	[fm contentsOfDirectoryAtURL:dirURL
+		includingPropertiesForKeys:[NSArray array]
+						   options:0
+							 error:&error
+	   ];
+	if (error) {
+		DDLogReport(@"Could not read %@ directory at %@", dirType, error);
+		NSString * message = (error.code == 257) ?
+			//sandbox violation
+			@"Please allow " kcTiVoName @" to access %@." :
+			@"You don't have read permission on %@.";
+		[self promptForNewDirectory:dirPath withMessage: message isProblem: YES isTempDir:isTempDir];
+		return;
+	}
+
 	//Now check for write permission
 	NSString *testPath = [NSString stringWithFormat:@"%@/.junk",dirPath];
+	
 	BOOL canWrite = [fm createFileAtPath:testPath contents:[NSData data] attributes:nil];
 	if (!canWrite) {
 		[self promptForNewDirectory:dirPath withMessage:@"You don't have write permission on %@." isProblem: YES isTempDir:isTempDir];
+		return;
 	} else {
 		//Clean up
 		[fm removeItemAtPath:testPath error:nil];
@@ -644,10 +939,10 @@ NSObject * assertionID = nil;
 -(void)clearTmpDirectory
 {
 	//Make sure the tmp directory exists and delete
-    NSString * tmpPath = tiVoManager.tmpFilesDirectory;
-    if(![[NSUserDefaults standardUserDefaults] boolForKey:kMTSaveTmpFiles]) {
-      if ([tmpPath contains: NSTemporaryDirectory()]) {
-        //only erase all files if we're in default temp dir. Too risky elsewise;
+	NSString * tmpPath = tiVoManager.tmpFilesDirectory;
+	if(![[NSUserDefaults standardUserDefaults] boolForKey:kMTSaveTmpFiles]) {
+		if ([tmpPath contains: NSTemporaryDirectory()]) {
+		//only erase all files if we're in default temp dir. Too risky elsewise;
 		//Clear it if not saving intermediate files
 			NSFileManager *fm = [NSFileManager defaultManager];
 			NSError *err = nil;
@@ -740,6 +1035,7 @@ NSObject * assertionID = nil;
 		NSMenu *thisMenu = [[NSMenu alloc] initWithTitle:@"Refresh Tivo"];
 		BOOL lastTivoWasManual = NO;
 		for (MTTiVo *tiVo in _tiVoGlobalManager.tiVoList) {
+			if (!tiVo.tiVo.name) continue;
 			if (!tiVo.manualTiVo && lastTivoWasManual) { //Insert a separator
 				NSMenuItem *menuItem = [NSMenuItem separatorItem];
 				[thisMenu addItem:menuItem];
@@ -824,7 +1120,7 @@ NSObject * assertionID = nil;
 -(void)showWindowController: (MTPreferencesWindowController *) controller {
     //prefer to show window as attached sheet, but sometimes in the field, we don't have a window?, so just show it regular.
     if (!controller.window) return;
-    NSWindow * mainWindow =  _mainWindowController.window ?: [NSApp keyWindow];
+    NSWindow * mainWindow =  _mainWindowController.window ?: [NSApp mainWindow];
     if (mainWindow) {
         [mainWindow beginSheet:controller.window completionHandler:nil];
     } else {
@@ -985,17 +1281,22 @@ NSObject * assertionID = nil;
     if (!tiVo.enabled) {
         gettingMediaKey = NO;
         [mediaKeyQueue removeObject:request];
-        return;
+		[self getMediaKeyFromUser:nil];//Process rest of queue
+		return;
     }
 	NSString *reason = request[@"reason"];
     NSString *message = nil;
 	if ([reason isEqualToString:@"new"]) {
         [tiVo getMediaKey];
         if (tiVo.mediaKey.length ==0) {
-            message = [NSString stringWithFormat:@"Need new Media Key for %@",tiVo.tiVo.name];
-        }
+            message = [NSString stringWithFormat:@"Need Media Access Key for %@",tiVo.tiVo.name];
+		} else {
+			tiVo.enabled = YES;
+			[tiVo updateShows:nil];
+			//yay. someone else filled in our media key
+		}
 	} else {
-		message = [NSString stringWithFormat:@"Incorrect Media Key for %@",tiVo.tiVo.name];
+		message = [NSString stringWithFormat:@"Incorrect Media Access Key for %@",tiVo.tiVo.name];
 	}
     if (message) {
         NSAlert *keyAlert = [NSAlert alertWithMessageText:message defaultButton:@"Save Key" alternateButton:@"Ignore TiVo" otherButton:nil informativeTextWithFormat:@" "];
@@ -1021,18 +1322,20 @@ NSObject * assertionID = nil;
         [keychainButton setState:NSOffState];
         [accView addSubview:keychainButton];
         
-        if (tiVo.mediaKey) [input setStringValue:tiVo.mediaKey];
+        if (tiVo.mediaKey.length) [input setStringValue:tiVo.mediaKey];
         [keyAlert setAccessoryView:accView];
         NSInteger button = [keyAlert runModal];
         if (button == NSAlertDefaultReturn) {
             [input validateEditing];
             DDLogDetail(@"Got New Media Key" );
             tiVo.mediaKey = input.stringValue;
- 			tiVo.enabled = YES;
-			[tiVo updateShows:nil];
-            if (keychainButton.state == NSOnState ) {
-                tiVo.storeMediaKeyInKeychain = YES;
-            }
+			tiVo.enabled = tiVo.mediaKey.length > 0;
+			if (tiVo.enabled) {
+				[tiVo updateShows:nil];
+				if (keychainButton.state == NSOnState ) {
+					tiVo.storeMediaKeyInKeychain = YES;
+				}
+			}
         } else {
             tiVo.enabled = NO;
 //            tiVo.mediaKey = input.stringValue;
@@ -1040,8 +1343,6 @@ NSObject * assertionID = nil;
     }
 	[mediaKeyQueue removeObject:request];
 	[tiVoManager updateTiVoDefaults:tiVo];
-
-	
 	gettingMediaKey = NO;
 	[self getMediaKeyFromUser:nil];//Process rest of queue
 }
@@ -1069,6 +1370,16 @@ NSObject * assertionID = nil;
 		_mainWindowController = [[MTMainWindowController alloc] initWithWindowNibName:@"MTMainWindowController"];
 	}
 	return _mainWindowController;
+}
+
+-(BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+	if (menuItem.action == @selector(showRemoteControlWindow:)) {
+		return [NSApp keyWindow ] != _remoteControlWindowController.window;
+	} else 	if (menuItem.action == @selector(showMainWindow:)) {
+		return [NSApp keyWindow ] != _mainWindowController.window;
+	} else {
+		return YES;
+	}
 }
 
 -(IBAction)showMainWindow:(id)sender {
@@ -1137,7 +1448,7 @@ NSObject * assertionID = nil;
 	[tiVoManager saveState];
 	[[NSUserDefaults standardUserDefaults] setBool: _remoteControlWindowController.window.isVisible forKey:@"RemoteVisible"];
 	 mediaKeyQueue = nil;
-    DDLogReport(@"cTiVo exiting");
+    DDLogReport(@"" kcTiVoName @" exiting");
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender

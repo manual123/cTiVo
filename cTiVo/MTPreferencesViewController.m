@@ -14,11 +14,21 @@
 @property (weak, nonatomic) IBOutlet NSPopUpButton *directoryFormatPopup;
 @property (weak, nonatomic) IBOutlet NSMenuItem *perModuleMenuItem;
 @property (weak, nonatomic) IBOutlet NSMenuItem *tiVoArtworkItem;
+@property (weak) IBOutlet NSButton *addToiTunes;
+@property (weak) IBOutlet NSButton *deleteFromItunes;
+@property (weak) IBOutlet NSButton *AutoSynciTunes;
+@property (weak) IBOutlet NSTextField *iTunesSection;
 
 @end
 
 @implementation MTPreferencesViewController
 
+-(void)changeButtonToAppleTV: (NSButton *) button {
+    button.title = [button.title stringByReplacingOccurrencesOfString:@"iTunes" withString:@"TV" ];
+    button.toolTip = [button.toolTip stringByReplacingOccurrencesOfString:@"iTunes" withString:@"Apple's TV app" ];
+    [button sizeToFit];
+}
+                         
 -(void)awakeFromNib {
 	[super awakeFromNib];
 	if (!self.directoryFormatPopup) return;
@@ -31,6 +41,12 @@
 	[self.directoryFormatPopup.menu setAutoenablesItems:NO];
 	formats[3].enabled = NO;
 	[[NSUserDefaults standardUserDefaults] addObserver:self forKeyPath:kMTFileNameFormat options:NSKeyValueObservingOptionInitial context:nil];
+	if (@available(macOS 10.15, *)) {
+        self.iTunesSection.cell.title = @"Apple's TV app (TV):"; [self.iTunesSection sizeToFit];
+        [self changeButtonToAppleTV: self.addToiTunes];
+        [self changeButtonToAppleTV: self.deleteFromItunes];
+		self.AutoSynciTunes.hidden = YES;
+	}
 }
 
 -(BOOL) validateMenuItem:(NSMenuItem *)menuItem {
@@ -97,7 +113,7 @@
 }
 
 -(IBAction) help:(id)sender {
-	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString: @"https://github.com/dscottbuch/cTiVo/wiki/Configuration#options"]];
+	[[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString: @"https://github.com/mackworth/cTiVo/wiki/Configuration#options"]];
 }
 
 -(void) dealloc {

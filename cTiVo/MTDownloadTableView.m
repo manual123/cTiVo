@@ -11,6 +11,7 @@
 #import "NSString+Helpers.h"
 #import "MTWeakTimer.h"
 #import "MTSubscriptionList.h"
+#import "MTShowFolder.h"
 
 @interface MTDownloadTableView ()
 @property (nonatomic, weak) IBOutlet NSTextField *performanceLabel;
@@ -34,6 +35,11 @@ __DDLOGHERE__
         self.delegate    = self;
         self.allowsMultipleSelection = YES;
         self.columnAutoresizingStyle = NSTableViewUniformColumnAutoresizingStyle;
+		if (@available(macOS 10.15, *)) {
+            NSTableColumn * iTunesColumn = [self tableColumnWithIdentifier:@"iTunes"];
+            iTunesColumn.title = [iTunesColumn.title stringByReplacingOccurrencesOfString:@"iTunes" withString:@"TV"];
+            iTunesColumn.headerToolTip = [iTunesColumn.headerToolTip stringByReplacingOccurrencesOfString:@"iTunes" withString:@"Apple's TV app"];
+		}
 	}
 	return self;
 }
@@ -51,7 +57,7 @@ __DDLOGHERE__
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadEpisode:) name:kMTNotificationDownloadRowChanged object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadEpisodeShow:) name:kMTNotificationDetailsLoaded	object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(showTiVoColumn:) name:kMTNotificationFoundMultipleTiVos object:nil];
-    [self registerForDraggedTypes:[NSArray arrayWithObjects:kMTTivoShowPasteBoardType, kMTDownloadPasteBoardType, nil]];
+    [self registerForDraggedTypes:[NSArray arrayWithObjects:kMTTivoShowPasteBoardType, kMTTiVoShowArrayPasteBoardType, kMTDownloadPasteBoardType, nil]];
 	[self  setDraggingSourceOperationMask:NSDragOperationLink forLocal:NO];
 	[self  setDraggingSourceOperationMask:NSDragOperationCopy forLocal:YES];
 }
@@ -105,18 +111,23 @@ __DDLOGHERE__
     
 	//save selection to restore after reload
 	DDLogDetail(@"Reloading DL table");
-	NSArray * selectedShows = [self.sortedDownloads objectsAtIndexes: self.selectedRowIndexes];
+	NSArray * selectedShows = @[];
+	if (self.selectedRowIndexes.lastIndex < self.sortedDownloads.count) {
+		selectedShows = [self.sortedDownloads objectsAtIndexes: self.selectedRowIndexes];
+	}
     CGRect frame = self.enclosingScrollView.documentVisibleRect;
 	[self sizeToFit];
     self.sortedDownloads =nil;
     [super reloadData];
 	
 	//now restore selection
-	NSIndexSet * showIndexes = [self.sortedDownloads indexesOfObjectsPassingTest:^BOOL(id obj, NSUInteger idx, BOOL *stop) {
-		return [selectedShows indexOfObjectIdenticalTo:obj] !=NSNotFound;
-	}];
+	if (selectedShows.count > 0) {
+		NSIndexSet * showIndexes = [self.sortedDownloads indexesOfObjectsPassingTest:^BOOL(id obj, NSUInteger idx, BOOL *stop) {
+			return [selectedShows indexOfObjectIdenticalTo:obj] !=NSNotFound;
+		}];
 	
-	[self selectRowIndexes:showIndexes byExtendingSelection:NO];
+		[self selectRowIndexes:showIndexes byExtendingSelection:NO];
+	}
 	[self scrollRectToVisible:frame];
 
     if (tiVoManager.anyTivoActive) {
@@ -133,7 +144,7 @@ __DDLOGHERE__
     
 }
 
--(NSArray *)sortedDownloads
+-(NSArray <MTDownload *> *) sortedDownloads
 {
 	if (!_sortedDownloads) {
         self.sortedDownloads = [tiVoManager currentDownloadQueueSortedBy: self.sortDescriptors];
@@ -178,9 +189,9 @@ __DDLOGHERE__
 				progressColumn = @"Programs";
 			}
 			NSInteger progressIndex = [self columnWithIdentifier:progressColumn];
-			NSUInteger i = [self.sortedDownloads indexOfObjectIdenticalTo:download];
-			if (i != NSNotFound) {
-				MTProgressindicator *cell = [self viewAtColumn:progressIndex row:i makeIfNecessary:NO];
+			NSUInteger row = [self.sortedDownloads indexOfObjectIdenticalTo:download];
+			if (row != NSNotFound && ((NSInteger)row < self.numberOfRows)) {
+				MTProgressindicator *cell = [self viewAtColumn:progressIndex row:row makeIfNecessary:NO];
 				[self updateProgressInCell: cell forDL: download];
 				cell.displayProgress = YES;
 				
@@ -219,9 +230,9 @@ __DDLOGHERE__
 {
 	[removeFromQueueButton setEnabled:[self numberOfSelectedRows] != 0];
     NSIndexSet *selectedRowIndexes = [self selectedRowIndexes];
-    if (selectedRowIndexes.count == 1) {
-        NSArray *selectedRows = [self.sortedDownloads objectsAtIndexes:selectedRowIndexes];
-		MTTiVoShow * show = ((MTDownload *) selectedRows[0]).show;
+	NSUInteger index = [selectedRowIndexes firstIndex];
+    if (selectedRowIndexes.count == 1 && index < self.sortedDownloads.count) {
+		MTTiVoShow * show = self.sortedDownloads[index].show;
 		if (!show.protectedShow.boolValue && self == self.window.firstResponder ) {
 			[myController setValue:show forKey:@"showForDetail"];
 		}
@@ -292,6 +303,13 @@ __DDLOGHERE__
     BOOL seriesColumn = [tableColumn.identifier isEqualToString:@"Series"];
     BOOL stageColumn = [tableColumn.identifier isEqualToString:@"DL Stage"];
 
+	MTCheckBox * checkBox = nil;
+	if ([result isKindOfClass:[MTDownloadCheckTableCell class]]) {
+		checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
+		checkBox.target = myController;
+		checkBox.owner = download;
+		checkBox.alignment = NSCenterTextAlignment;
+	}
 	if (programColumn || seriesColumn || stageColumn) {
         //Progress status should show in first visible of DL Stage, then Programs, then Series
  		NSString * cellVal;
@@ -354,15 +372,13 @@ __DDLOGHERE__
 		   popUpButton.hidden = YES;
 		   cell.textField.hidden= NO;
 		}
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundeclared-selector"
     } else if ([tableColumn.identifier isEqualToString:@"iTunes"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         [checkBox setOn: download.addToiTunesWhenEncoded];
         [checkBox setEnabled: !download.isCompletelyDone && !protected &&
                               download.encodeFormat.canAddToiTunes ];
-        checkBox.target = myController;
         checkBox.action = @selector(changeiTunes:);
-         checkBox.owner = download;
-
 	} else if ([tableColumn.identifier isEqualToString:@"icon"]) {
         NSString * imageName = download.imageString;
            DDLogVerbose(@"Icon: %@ for %@",imageName, download.show.showTitle);
@@ -396,38 +412,22 @@ __DDLOGHERE__
 		result.imageView.frame = CGRectMake(leftMargin, topMargin, height, height);
 		return result;
 	} else if ([tableColumn.identifier isEqualToString:@"Skip"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         [checkBox setOn: download.skipCommercials];
-        checkBox.owner = download;
-        checkBox.target = myController;
         checkBox.action = @selector(changeSkip:);
         [checkBox setEnabled: download.isNew && !protected && download.encodeFormat.canSkip];
-        
+	} else if ([tableColumn.identifier isEqualToString:@"UseTS"]) {
+		[checkBox setOn: download.useTransportStream.boolValue];
+		checkBox.action = @selector(changeUseTS:);
+		[checkBox setEnabled: download.isNew && !protected && download.show.tiVo.supportsTransportStream];
  	} else if ([tableColumn.identifier isEqualToString:@"Mark"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         [checkBox setOn: download.markCommercials];
-        checkBox.owner = download;
-        checkBox.target = myController;
         checkBox.action = @selector(changeMark:);
 		int status = download.downloadStatus.intValue;
 		[checkBox setEnabled: (download.isNew || status == kMTStatusSkipModeWaitEnd || status == kMTStatusAwaitingPostCommercial ||
 							   (download.isInProgress && download.useSkipMode) ) &&
 		 						!protected && download.encodeFormat.canMarkCommercials];
-        
-#ifndef deleteXML
- 	} else if ([tableColumn.identifier isEqualToString:@"XML"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
-        [checkBox setOn: download.genXMLMetaData.boolValue];
-        checkBox.owner = download;
-        checkBox.target = myController;
-        checkBox.action = @selector(changeXML:);
-		checkBox.enabled = !download.isDone && !protected;
-#endif
 	} else if ([tableColumn.identifier isEqualToString:@"UseSkipMode"]) {
-		MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
 		[checkBox setOn: download.useSkipMode];
-		checkBox.owner = download;
-		checkBox.target = myController;
 		checkBox.action = @selector(changeUseSkipMode:);
 		int status = download.downloadStatus.intValue;
 		[checkBox setEnabled:
@@ -439,28 +439,18 @@ __DDLOGHERE__
 		 	(download.encodeFormat.canMarkCommercials || download.encodeFormat.canSkip)];
 		
 	} else if ([tableColumn.identifier isEqualToString:@"pyTiVo"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         [checkBox setOn: download.genTextMetaData.boolValue];
-        checkBox.target = myController;
         checkBox.action = @selector(changepyTiVo:);
-        checkBox.owner = download;
 		checkBox.enabled = !download.isDone && !protected;
 	} else if ([tableColumn.identifier isEqualToString:@"Subtitles"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         [checkBox setOn: download.exportSubtitles.boolValue];
-        checkBox.target = myController;
         checkBox.action = @selector(changeSubtitle:);
-        checkBox.owner = download;
 		checkBox.enabled = download.isNew && !protected;
-#ifndef deleteXML
-	} else if ([tableColumn.identifier isEqualToString:@"Metadata"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
-        [checkBox setOn: download.includeAPMMetaData.boolValue && download.encodeFormat.canAcceptMetaData];
-        checkBox.target = myController;
-        checkBox.action = @selector(changeMetadata:);
-        checkBox.owner = download;
-		checkBox.enabled = download.encodeFormat.canAcceptMetaData && !download.isDone && !protected;
-#endif
+	} else if ([tableColumn.identifier isEqualToString:@"Delete"]) {
+		[checkBox setOn: download.deleteAfterDownload.boolValue];
+		checkBox.action = @selector(changeDelete:);
+		checkBox.enabled = !download.isCompletelyDone && !protected ;
+#pragma clang diagnostic pop
   	} else if ([tableColumn.identifier isEqualToString:@"Date"]) {
 		if ([tableColumn width] > 135) {
 			textVal = thisShow.showMediumDateString;
@@ -484,7 +474,7 @@ __DDLOGHERE__
     } else if ([tableColumn.identifier compare:@"H.264"] == NSOrderedSame) {
         textVal = thisShow.h264String;
         result.textField.alignment = NSCenterTextAlignment;
-        result.toolTip =@"Does this channel use H.264 compression?";
+        result.toolTip =@"Does this show (✔) or channel (√) use H.264 compression v. MPEG2 ( -- or -)?";
 	} else if ([tableColumn.identifier isEqualToString:@"Channel"]) {
 		textVal = thisShow.channelString;
 	} else if ([tableColumn.identifier isEqualToString:@"Size"]) {
@@ -790,9 +780,10 @@ __DDLOGHERE__
         insertRow = [[tiVoManager downloadQueue] indexOfObject:insertTarget];
     }
     
-    NSArray	*classes = @[[MTTiVoShow class]];
+    NSArray	*classes = @[[MTTiVoShow class], [MTShowFolder class]];
     NSDictionary *options = [NSDictionary dictionary];
     NSArray	*draggedShows = [pboard readObjectsForClasses:classes options:options];
+	draggedShows = [draggedShows flattenShows]; //expand any folders
     DDLogMajor(@"Accepting drop: %@", draggedShows);
 
     //dragged shows are proxies, so we need to find the real show objects
@@ -822,15 +813,15 @@ __DDLOGHERE__
     }
 
 
-    [tiVoManager downloadShowsWithCurrentOptions:realShows beforeDownload:insertTarget];
-
+    NSArray <MTDownload *> * newDownloads = [tiVoManager downloadShowsWithCurrentOptions:realShows beforeDownload:insertTarget];
+	if (!newDownloads.count) return NO;
+	
     self.sortedDownloads = nil;
     [tiVoManager sortDownloadQueue];
     DDLogVerbose(@"afterSort: %@", self.sortedDownloads);
 
-    NSIndexSet * selectionIndexes = [self.sortedDownloads indexesOfObjectsPassingTest:^BOOL(id obj, NSUInteger idx, BOOL *stop) {
-        MTDownload * download = (MTDownload *) obj;
-        return [realShows indexOfObjectIdenticalTo:download.show] !=NSNotFound;
+    NSIndexSet * selectionIndexes = [self.sortedDownloads indexesOfObjectsPassingTest:^BOOL(MTDownload * download, NSUInteger idx, BOOL *stop) {
+		return [newDownloads containsObject: download];
     }];
 	[self insertRowsAtIndexes:selectionIndexes withAnimation:NSTableViewAnimationEffectGap];
     //now leave new shows selected
@@ -955,7 +946,8 @@ __DDLOGHERE__
     } else  if ([menuItem action]==@selector(paste:)) {
         NSPasteboard * pboard = [NSPasteboard generalPasteboard];
         return  ([pboard.types containsObject:kMTTivoShowPasteBoardType] ||
-                 [pboard.types containsObject:kMTDownloadPasteBoardType]);
+				 [pboard.types containsObject:kMTTiVoShowArrayPasteBoardType] ||
+				 [pboard.types containsObject:kMTDownloadPasteBoardType]);
     }
     return YES;
 }
@@ -983,8 +975,9 @@ __DDLOGHERE__
     NSPasteboard * pboard = [NSPasteboard generalPasteboard];
     if ([pboard.types containsObject:kMTDownloadPasteBoardType]) {
         [self insertDownloadsFromPasteboard:pboard atRow:row];
-    } else if ([pboard.types containsObject:kMTTivoShowPasteBoardType]) {
-        [self insertShowsFromPasteboard:pboard atRow:row];
+	} else if ([pboard.types containsObject:kMTTivoShowPasteBoardType] ||
+			   [pboard.types containsObject:kMTTiVoShowArrayPasteBoardType]) {
+		[self insertShowsFromPasteboard:pboard atRow:row];
     }
 }
 

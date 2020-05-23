@@ -13,6 +13,7 @@
 #import "MTChannelPopUpTableCellView.h"
 #import "MTDownloadCheckTableCell.h"
 #import "MTSubscriptionList.h"
+#import "MTShowFolder.h"
 
 @implementation MTSubscriptionTableView
 
@@ -39,6 +40,11 @@ __DDLOGHERE__
         //    self.rowHeight = 20;
         self.allowsMultipleSelection = YES;
         self.columnAutoresizingStyle = NSTableViewUniformColumnAutoresizingStyle;
+		if (@available(macOS 10.15, *)) {
+			NSTableColumn * iTunesColumn = [self tableColumnWithIdentifier:@"iTunes"];
+			iTunesColumn.title = [iTunesColumn.title stringByReplacingOccurrencesOfString:@"iTunes" withString:@"TV"];
+            iTunesColumn.headerToolTip = [iTunesColumn.headerToolTip stringByReplacingOccurrencesOfString:@"iTunes" withString:@"Apple's TV app"];
+		}
 	}
 	return self;
 }
@@ -59,7 +65,7 @@ __DDLOGHERE__
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(tableViewSelectionDidChange:) name:kMTNotificationSubscriptionsUpdated object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadData) name:kMTNotificationSubscriptionsUpdated object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadData) name:kMTNotificationFormatListUpdated object:nil];
-	[self registerForDraggedTypes:[NSArray arrayWithObjects:kMTTivoShowPasteBoardType, kMTDownloadPasteBoardType, NSPasteboardTypeString, nil]];
+	[self registerForDraggedTypes:[NSArray arrayWithObjects:kMTTivoShowPasteBoardType, kMTTiVoShowArrayPasteBoardType, kMTDownloadPasteBoardType, NSPasteboardTypeString, nil]];
 	[self  setDraggingSourceOperationMask:NSDragOperationDelete forLocal:NO];
 
 }
@@ -273,6 +279,8 @@ static NSDateFormatter *dateFormatter;
 		popUp.action = @selector(selectTivoPopUp:);
 		popUp.owner = thisSubscription;
 		popUp.currentTivo = thisSubscription.preferredTiVo;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundeclared-selector"
 	} else if ([tableColumn.identifier compare:@"iTunes"] == NSOrderedSame) {
         MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         checkBox.target = myController;
@@ -301,15 +309,6 @@ static NSDateFormatter *dateFormatter;
 		[checkBox setEnabled:  [thisSubscription canMarkCommercials] ||  [thisSubscription canSkipCommercials]] ;
 		[checkBox setOn: thisSubscription.useSkipMode.boolValue];
 		checkBox.owner = thisSubscription;
-#ifndef deleteXML
-	} else if ([tableColumn.identifier isEqualToString:@"XML"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
-        checkBox.target = myController;
-        checkBox.action = @selector(changeXML:);
-        [checkBox setOn: thisSubscription.genXMLMetaData.boolValue];
-        checkBox.owner = thisSubscription;
-		checkBox.enabled = YES;		
-#endif
 	} else if ([tableColumn.identifier isEqualToString:@"pyTiVo"]) {
         MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         checkBox.target = myController;
@@ -323,16 +322,14 @@ static NSDateFormatter *dateFormatter;
         checkBox.action = @selector(changeSubtitle:);
         [checkBox setOn: thisSubscription.exportSubtitles.boolValue];
         checkBox.owner = thisSubscription;
-		checkBox.enabled = YES;		
-#ifndef deleteXML
-	} else if ([tableColumn.identifier isEqualToString:@"Metadata"]) {
-        MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
-        checkBox.target = myController;
-        checkBox.action = @selector(changeMetadata:);
-        [checkBox setOn: thisSubscription.includeAPMMetaData.boolValue && thisSubscription.encodeFormat.canAcceptMetaData];
-        checkBox.owner = thisSubscription;
-		checkBox.enabled = thisSubscription.encodeFormat.canAcceptMetaData;
-#endif
+		checkBox.enabled = YES;
+	} else if ([tableColumn.identifier isEqualToString:@"Delete"]) {
+		MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
+		checkBox.target = myController;
+		checkBox.action = @selector(changeDelete:);
+		[checkBox setOn: thisSubscription.deleteAfterDownload.boolValue];
+		checkBox.owner = thisSubscription;
+		checkBox.enabled = YES;
 	} else if([tableColumn.identifier isEqualToString: @"Suggestions"]) {
         MTCheckBox * checkBox = ((MTDownloadCheckTableCell *)result).checkBox;
         checkBox.target = self;
@@ -355,6 +352,7 @@ static NSDateFormatter *dateFormatter;
         checkBox.owner = thisSubscription;
 		checkBox.enabled = YES;
 	}
+#pragma clang diagnostic pop
 
     // return the result.
     return result;
@@ -434,15 +432,16 @@ static NSDateFormatter *dateFormatter;
 	}
 }
 
+
 -(NSArray *)insertShowsFromPasteboard:(NSPasteboard *) pboard atRow:(NSUInteger) row {
-    NSArray	*classes = [NSArray arrayWithObject:[MTTiVoShow class]];
+    NSArray	*classes = @[[MTTiVoShow class], [MTShowFolder class]];
     NSDictionary *options = [NSDictionary dictionary];
     //NSDictionary * pasteboard = [[info draggingPasteboard] propertyListForType:kMTTivoShowPasteBoardType] ;
     //NSLog(@"calling readObjects%@",pasteboard);
     NSArray	*draggedShows = [pboard readObjectsForClasses:classes options:options];
     if (draggedShows.count == 0) return nil;
     DDLogDetail(@"Dragging into Subscriptions: %@", draggedShows);
-
+	draggedShows = [draggedShows flattenShows]; //expand any folders
     //dragged shows are copies, so we need to find the real show objects
     NSMutableArray * realShows = [NSMutableArray arrayWithCapacity:draggedShows.count ];
     for (MTTiVoShow * show in draggedShows) {
@@ -530,6 +529,7 @@ static NSDateFormatter *dateFormatter;
     } else  if ([menuItem action]==@selector(paste:)) {
         NSPasteboard * pboard = [NSPasteboard generalPasteboard];
         return  ([pboard.types containsObject:kMTTivoShowPasteBoardType] ||
+				 [pboard.types containsObject:kMTTiVoShowArrayPasteBoardType] ||
                  [pboard.types containsObject:kMTDownloadPasteBoardType] ||
                   [pboard.types containsObject:NSPasteboardTypeString]);
     }
@@ -557,7 +557,8 @@ static NSDateFormatter *dateFormatter;
     NSPasteboard * pboard = [NSPasteboard generalPasteboard];
     if ([pboard.types containsObject:kMTDownloadPasteBoardType]) {
         [self insertDownloadsFromPasteboard:pboard atRow:row];
-    } else if ([pboard.types containsObject:kMTTivoShowPasteBoardType]) {
+	} else if ([pboard.types containsObject:kMTTivoShowPasteBoardType] ||
+			   [pboard.types containsObject:kMTTiVoShowArrayPasteBoardType]) {
         [self insertShowsFromPasteboard:pboard atRow:row];
     } else if ([pboard.types containsObject:NSPasteboardTypeString]) {
       [self insertStringsFromPasteboard:pboard atRow:row];

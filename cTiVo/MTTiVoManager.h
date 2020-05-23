@@ -23,7 +23,6 @@
 
 @property (nonatomic, readonly) NSArray <MTTiVo *> *tiVoList;
 @property (nonatomic, readonly) NSArray <MTTiVo *> *tiVoMinis;
-@property (nonatomic, readonly) NSArray <MTTiVo *> *allTiVos;
 @property (nonatomic, readonly) NSArray <MTTiVoShow *> *tiVoShows;
 @property (nonatomic, strong) NSMutableArray <MTFormat *> *formatList;
 @property (nonatomic, strong) NSMutableDictionary <NSString *, NSDate *> *lastLoadedTivoTimes;
@@ -58,8 +57,8 @@
 
 //---------------Download Queue Manager methods ----------
 -(void) cancelAllDownloads;
--(void) addToDownloadQueue:(NSArray <MTDownload *> *)downloads beforeDownload:(MTDownload *) nextShow;
--(void) downloadShowsWithCurrentOptions:(NSArray<MTTiVoShow *> *) shows beforeDownload:(MTDownload *) nextShow;
+-(NSArray <MTDownload *> *) addToDownloadQueue:(NSArray <MTDownload *> *)downloads beforeDownload:(MTDownload *) nextShow;
+-(NSArray <MTDownload *> *) downloadShowsWithCurrentOptions:(NSArray<MTTiVoShow *> *) shows beforeDownload:(MTDownload *) nextShow;
 -(void) deleteFromDownloadQueue:(NSArray <MTDownload *>*)downloads;
 -(void) rescheduleDownloads: (NSArray <MTDownload *> *) downloads;
 -(NSIndexSet *) moveShowsInDownloadQueue:(NSArray <MTDownload *> *) downloads
@@ -137,6 +136,7 @@
 
 -(NSArray <NSString *> *) copiesOnDiskForShow:(MTTiVoShow *) show;
 -(void) addShow:(MTTiVoShow *) show onDiskAtPath:(NSString *)path;
+-(void) launchMetadataQuery;
 
 -(void) updateManualInfo:(NSDictionary *) info forShow: (MTTiVoShow *) show;
 -(NSDictionary *) getManualInfo: (MTTiVoShow *) show;

@@ -59,36 +59,44 @@ __DDLOGHERE__
 		BOOL skipModeWasDisabled = ![self canSkipModeCommercials];
        _encodeFormat = encodeFormat;
 
-		if (!self.canAddToiTunes && self.shouldAddToiTunes) {
-            //no longer possible
-            self.addToiTunes = [NSNumber numberWithBool:NO];
-        } else if (iTunesWasDisabled && [self canAddToiTunes]) {
-            //newly possible, so take user default
-            self.addToiTunes = [NSNumber numberWithBool:([[NSUserDefaults standardUserDefaults] boolForKey:kMTiTunesSubmit] && self.encodeFormat.canAddToiTunes)];
+		NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+		if ([self canAddToiTunes]) { //if newly possible, take user default
+			if (iTunesWasDisabled) self.addToiTunes = @([defaults boolForKey:kMTiTunesSubmit] );
+		} else { //no longer possible
+            self.addToiTunes = @NO;
         }
-        if (!self.canSkipCommercials && self.shouldSkipCommercials) {
-            //no longer possible
-            self.skipCommercials = [NSNumber numberWithBool:NO];
-        } else if (skipWasDisabled && [self canSkipCommercials]) {
-            //newly possible, so take user default
-            self.skipCommercials = [NSNumber numberWithBool:([[NSUserDefaults standardUserDefaults] boolForKey:kMTSkipCommercials] && self.encodeFormat.comSkip)];
+		if ([self canSkipCommercials]) {
+			if (skipWasDisabled) self.skipCommercials = @([defaults boolForKey:kMTSkipCommercials]);
+		} else { //no longer possible
+            self.skipCommercials = @NO;
         }
-        if (!self.canMarkCommercials && self.shouldMarkCommercials) {
-            //no longer possible
-            self.markCommercials = @NO;
-        } else if (markWasDisabled && [self canMarkCommercials]) {
-            //newly possible, so take user default
-            self.markCommercials = [[NSUserDefaults standardUserDefaults] objectForKey:kMTMarkCommercials];
-        }
-		if (self.useSkipMode && ![self canSkipModeCommercials]) {
-			self.useSkipMode = @NO;
-		} else if (skipModeWasDisabled && [self canSkipModeCommercials]) {
-			//newly possible, so take user default
-			self.useSkipMode = @([[NSUserDefaults standardUserDefaults] integerForKey:kMTCommercialStrategy] > 0);
+		if ([self canMarkCommercials]) {
+			if (markWasDisabled) self.markCommercials = @([defaults boolForKey:kMTMarkCommercials]);
+		} else { //no longer possible
+			self.markCommercials = @NO;
 		}
-		
+		if ([self canSkipModeCommercials]) {
+			if (skipModeWasDisabled) self.useSkipMode = @([defaults integerForKey:kMTCommercialStrategy] > 0);
+		} else { //no longer possible
+			self.useSkipMode = @NO;
+		}
     }
 }
+
+-(void) setSkipCommercials:(NSNumber *)skipCommercials {
+	_skipCommercials = skipCommercials;
+	if (_skipCommercials.boolValue && _markCommercials.boolValue) {
+		self.markCommercials = @NO;
+	}
+}
+
+-(void) setMarkCommercials:(NSNumber *)markCommercials {
+	_markCommercials = markCommercials;
+	if (_skipCommercials.boolValue && _markCommercials.boolValue) {
+		self.skipCommercials = @NO;
+	}
+}
+
 - (void) formatMayHaveChanged{
 	//if format list is updated, we need to ensure our format still exists
 	//known bug: if name of current format changed, we will not find correct one
@@ -157,14 +165,11 @@ __DDLOGHERE__
     //should we have a directory per subscription? UI?
 	newDownload.addToiTunesWhenEncoded = ([self canAddToiTunes] && [self shouldAddToiTunes]);
 	newDownload.exportSubtitles = self.exportSubtitles;
+	newDownload.deleteAfterDownload = self.deleteAfterDownload;
 	newDownload.skipCommercials = self.shouldSkipCommercials && self.canSkipCommercials;
 	newDownload.useSkipMode =     self.useSkipMode.boolValue;
 	newDownload.markCommercials = self.shouldMarkCommercials && self.canMarkCommercials ;
 	newDownload.genTextMetaData = self.genTextMetaData;
-#ifndef deleteXML
-	newDownload.genXMLMetaData = self.genXMLMetaData;
-	newDownload.includeAPMMetaData =[NSNumber numberWithBool:(newDownload.encodeFormat.canAcceptMetaData && self.includeAPMMetaData.boolValue)];
-#endif
     DDLogDetail(@"Adding %@: ID: %@, Sub: %@, date: %@, Tivo: %@", thisShow, thisShow.episodeID, thisShow.uniqueID, thisShow.showDate, thisShow.tiVoName );
 
     if ( thisShow.showTitle &&  thisShow.uniqueID && thisShow.showDate && thisShow.tiVoName ) { //protective only; should always be non-nil
@@ -215,7 +220,7 @@ __DDLOGHERE__
 #define kMTSubChannel 5
 #define kMTSubMin 6
 
-#define kMTSubStringsArray  @[@"iTunes", @"skipAds", @"markAds",  @"suggestions",  @"pyTiVo",  @"subtitles",  @"HDOnly",  @"SDOnly", @"SkipMode"]
+#define kMTSubStringsArray  @[@"iTunes", @"skipAds", @"markAds",  @"suggestions",  @"pyTiVo",  @"subtitles",  @"HDOnly",  @"SDOnly", @"SkipMode", @"Delete"]
 #define kMTSubiTunes 0
 #define kMTSubSkipAds 1
 #define kMTSubMarkAds 2
@@ -225,6 +230,7 @@ __DDLOGHERE__
 #define kMTSubHD 6
 #define kMTSubSD 7
 #define kMTSubSkipMode 8
+#define kMTSubDelete 9
 
 +(instancetype) subscriptionFromString:(NSString *) str {
     //imports a subscription from an imported string
@@ -261,6 +267,7 @@ __DDLOGHERE__
         newSub.includeSuggestions = @NO;
         newSub.genTextMetaData = @NO;
         newSub.exportSubtitles=  @NO;
+		newSub.deleteAfterDownload=  @NO;
         newSub.HDOnly= @NO;
         newSub.SDOnly= @NO;
 
@@ -278,6 +285,7 @@ __DDLOGHERE__
                 case kMTSubSuggestions: newSub.includeSuggestions = @YES;   break;
                 case kMTSubPyTiVo:      newSub.genTextMetaData = @YES;      break;
                 case kMTSubCaptions:    newSub.exportSubtitles=  @YES;      break;
+				case kMTSubDelete:      newSub.deleteAfterDownload =  @YES; break;
                 case kMTSubHD:          newSub.HDOnly= @YES;                break;
 				case kMTSubSD:          newSub.SDOnly= @YES;                break;
 				case kMTSubSkipMode:    newSub.useSkipMode= @YES;           break;
@@ -328,14 +336,10 @@ __DDLOGHERE__
     if (tempSub.markCommercials ==nil) tempSub.markCommercials = [[NSUserDefaults standardUserDefaults] objectForKey:kMTMarkCommercials];
     tempSub.genTextMetaData = sub[kMTSubscribedGenTextMetaData];
     if (tempSub.genTextMetaData ==nil) tempSub.genTextMetaData = [[NSUserDefaults standardUserDefaults] objectForKey:kMTExportTextMetaData];
-#ifndef deleteXML
-    tempSub.genXMLMetaData = sub[kMTSubscribedGenXMLMetaData];
-    if (tempSub.genXMLMetaData ==nil) tempSub.genXMLMetaData = [[NSUserDefaults standardUserDefaults] objectForKey:kMTExportTivoMetaData];
-    tempSub.includeAPMMetaData = sub[kMTSubscribedIncludeAPMMetaData];
-    if (tempSub.includeAPMMetaData ==nil) tempSub.includeAPMMetaData = [[NSUserDefaults standardUserDefaults] objectForKey:kMTExportMetaData];
-#endif
     tempSub.exportSubtitles = sub[kMTSubscribedExportSubtitles];
     if (tempSub.exportSubtitles ==nil) tempSub.exportSubtitles = [[NSUserDefaults standardUserDefaults] objectForKey:kMTExportSubtitles];
+	tempSub.deleteAfterDownload = sub[kMTSubscribedDeleteAfterDownload];
+	if (tempSub.deleteAfterDownload == nil) tempSub.deleteAfterDownload = @NO;
     tempSub.preferredTiVo = sub[kMTSubscribedPreferredTiVo];
     if (!tempSub.preferredTiVo || ([tempSub.preferredTiVo isEqualToString:@"Any TiVo"]) ){
         tempSub.preferredTiVo = @"";
@@ -395,7 +399,8 @@ __DDLOGHERE__
 	if (self.useSkipMode.boolValue )        [outString addObject: kMTSubStringsArray [kMTSubSkipMode]];
     if (self.includeSuggestions.boolValue ) [outString addObject: kMTSubStringsArray [kMTSubSuggestions]];
     if (self.genTextMetaData.boolValue )    [outString addObject: kMTSubStringsArray [kMTSubPyTiVo]];
-    if (self.exportSubtitles.boolValue )    [outString addObject: kMTSubStringsArray [kMTSubCaptions]];
+	if (self.exportSubtitles.boolValue )    [outString addObject: kMTSubStringsArray [kMTSubCaptions]];
+	if (self.exportSubtitles.boolValue )    [outString addObject: kMTSubStringsArray [kMTSubDelete]];
     if (self.HDOnly.boolValue )             [outString addObject: kMTSubStringsArray [kMTSubHD]];
     if (self.SDOnly.boolValue )             [outString addObject: kMTSubStringsArray [kMTSubSD]];
     return [outString componentsJoinedByString:@"\t"];

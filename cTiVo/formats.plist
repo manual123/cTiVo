@@ -668,74 +668,6 @@ audio: mp2 at 192kbs</string>
 		</dict>
 		<dict>
 			<key>formatDescription</key>
-			<string>HandBrake using the built-in iPhone preset</string>
-			<key>comSkip</key>
-			<false/>
-			<key>edlFlag</key>
-			<string></string>
-			<key>comSkipOptions</key>
-			<string></string>
-			<key>filenameExtension</key>
-			<string>.mp4</string>
-			<key>encoderUsed</key>
-			<string>HandBrakeCLI</string>
-			<key>name</key>
-			<string>HB Old iPhone</string>
-			<key>encoderVideoOptions</key>
-			<string>-Z&quot;iPhone &amp; iPod Touch&quot;</string>
-			<key>encoderAudioOptions</key>
-			<string></string>
-			<key>encoderOtherOptions</key>
-			<string></string>
-			<key>iTunes</key>
-			<true/>
-			<key>mustDownloadFirst</key>
-			<true/>
-			<key>outputFileFlag</key>
-			<string>-o</string>
-			<key>inputFileFlag</key>
-			<string>-i</string>
-			<key>regExProgress</key>
-			<string> ([\d\.]*?) \%</string>
-			<key>isHidden</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>formatDescription</key>
-			<string>HandBrake using the built-in AppleTV preset</string>
-			<key>comSkip</key>
-			<false/>
-			<key>edlFlag</key>
-			<string></string>
-			<key>comSkipOptions</key>
-			<string></string>
-			<key>filenameExtension</key>
-			<string>.m4v</string>
-			<key>encoderUsed</key>
-			<string>HandBrakeCLI</string>
-			<key>name</key>
-			<string>HB Old AppleTV</string>
-			<key>encoderVideoOptions</key>
-			<string>-Z&quot;AppleTV 2&quot;</string>
-			<key>encoderAudioOptions</key>
-			<string></string>
-			<key>encoderOtherOptions</key>
-			<string></string>
-			<key>iTunes</key>
-			<true/>
-			<key>mustDownloadFirst</key>
-			<true/>
-			<key>outputFileFlag</key>
-			<string>-o</string>
-			<key>inputFileFlag</key>
-			<string>-i</string>
-			<key>regExProgress</key>
-			<string> ([\d\.]*?) \%</string>
-			<key>isHidden</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>formatDescription</key>
 			<string>Create AVI format file</string>
 			<key>comSkip</key>
 			<false/>
@@ -856,7 +788,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -892,7 +824,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -928,7 +860,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -964,7 +896,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1000,7 +932,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1036,7 +968,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1072,7 +1004,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1108,7 +1040,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1144,7 +1076,7 @@ audio: mp2 at 192kbs</string>
 			<key>encoderUsed</key>
 			<string>elgatoScript.pl</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>mustDownloadFirst</key>
@@ -1187,7 +1119,7 @@ audio: mp3 at 192kbps</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1333,7 +1265,7 @@ audio: mp3 at 192kbps</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1371,7 +1303,7 @@ audio: mp3 at 192kbps</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1410,7 +1342,7 @@ Compatible with AppleTV 3+, iPad2+; iPhone 4s+; iPod Touch </string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1449,7 +1381,7 @@ Compatible with AppleTV 2+; iPad; iPhone 4+; iPod Touch 4</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1471,7 +1403,46 @@ Compatible with AppleTV 2+; iPad; iPhone 4+; iPod Touch 4</string>
 			<key>edlFlag</key>
 			<string></string>
 			<key>encoderAudioOptions</key>
+			<string>&lt;&lt;&lt;INPUT&gt;&gt;&gt; -c:a copy</string>
+			<key>encoderOtherOptions</key>
 			<string></string>
+			<key>encoderUsed</key>
+			<string>ffmpeg</string>
+			<key>encoderVideoOptions</key>
+			<string>&lt;&lt;&lt;INPUT&gt;&gt;&gt;  -profile:v main -level 3.1  -vf &quot;yadif,scale=w=floor(iw*min(1\,min(1280/iw\,720/ih))/2)*2:h=-2&quot; </string>
+			<key>filenameExtension</key>
+			<string>.mp4</string>
+			<key>formatDescription</key>
+			<string>720P max res; Main 3.1; No Surround; No Commercial Skip
+Compatible with AppleTV 2+; iPad; iPhone 4+; iPod Touch 4</string>
+			<key>iTunes</key>
+			<true/>
+			<key>inputFileFlag</key>
+			<string>-i</string>
+			<key>isFactoryFormat</key>
+			<true/>
+			<key>isHidden</key>
+			<false/>
+			<key>mustDownloadFirst</key>
+			<false/>
+			<key>name</key>
+			<string>Simultaneous</string>
+			<key>outputFileFlag</key>
+			<string></string>
+			<key>regExProgress</key>
+			<string>(\d+\.\d+) \%</string>
+		</dict>
+		<dict>
+			<key>captionOptions</key>
+			<string></string>
+			<key>comSkip</key>
+			<false/>
+			<key>comSkipOptions</key>
+			<string></string>
+			<key>edlFlag</key>
+			<string></string>
+			<key>encoderAudioOptions</key>
+			<string>&lt;&lt;&lt;INPUT&gt;&gt;&gt; -c:a copy</string>
 			<key>encoderOtherOptions</key>
 			<string></string>
 			<key>encoderUsed</key>
@@ -1488,7 +1459,7 @@ Compatible with AppleTV 2+; iPad; iPhone 4+; iPod Touch 4</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1527,7 +1498,7 @@ Compatible with AppleTV 3+, iPad2+; iPhone 4s+; iPod Touch </string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1566,7 +1537,7 @@ Compatible with AppleTV 3+, iPad2+; iPhone 4s+; iPod Touch </string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1605,7 +1576,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<false/>
 			<key>mustDownloadFirst</key>
@@ -1643,7 +1614,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1681,7 +1652,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1719,7 +1690,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1757,7 +1728,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1795,7 +1766,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1833,7 +1804,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1871,7 +1842,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>
@@ -1909,7 +1880,7 @@ Should be compatible with all devices and Standard Def TVs</string>
 			<key>inputFileFlag</key>
 			<string>-i</string>
 			<key>isFactoryFormat</key>
-			<false/>
+			<true/>
 			<key>isHidden</key>
 			<true/>
 			<key>mustDownloadFirst</key>

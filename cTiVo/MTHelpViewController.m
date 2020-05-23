@@ -16,6 +16,28 @@
 
 @end
 
+@interface NSAttributedString (replace)
+
+-(NSAttributedString *) replace:(NSString *) oldString with:(NSString *) newString;
+
+@end
+
+@implementation NSAttributedString (replace)
+-(NSAttributedString *) replace:(NSString *) oldString with:(NSString *) newString {
+	NSMutableAttributedString * string = [self mutableCopy];
+	NSRange range = [string.string rangeOfString:oldString options:NSLiteralSearch];
+	while (range.location != NSNotFound) {
+		[string replaceCharactersInRange:range withString:newString];
+		NSInteger start = range.location+ newString.length;
+		NSRange newRange = NSMakeRange( start,string.length-start) ;
+		range = [string.string rangeOfString:oldString options:NSLiteralSearch range:newRange];
+	}
+	return [string copy];
+
+}
+
+@end
+
 @implementation MTHelpViewController
 
 -(id) init {
@@ -71,37 +93,13 @@
 
 -(void) loadResource:(NSString *)rtfFile {
 	//Looks for RTF resource; first as rtf then as rtfd.
-	//if dark Mode, either finds rtfFileDark or auto-converts text to Textcolor
-	BOOL darkMode = NO;
-	BOOL autoDarkMode = NO;
-	if (@available(macOS 10.14, *) ) {
-		darkMode = [self.view.effectiveAppearance.name isEqualToString:NSAppearanceNameDarkAqua];
-	}
 	NSAttributedString *attrHelpText = nil;
-	NSURL *helpFile = nil;
-	if (darkMode) {
-		helpFile = [[NSBundle mainBundle] URLForResource:[rtfFile stringByAppendingString:@"Dark"] withExtension:@"rtf"];
-	}
-	if (!helpFile) {
-		helpFile = [[NSBundle mainBundle] URLForResource:rtfFile withExtension:@"rtf"];
-		if (helpFile){
-			if (darkMode) autoDarkMode = YES;
-		}
-	}
+	NSURL *helpFile = [[NSBundle mainBundle] URLForResource:rtfFile withExtension:@"rtf"];
 	if (helpFile) {
-		 attrHelpText= [[NSAttributedString alloc] initWithRTF:[NSData dataWithContentsOfURL:helpFile] documentAttributes:NULL];
-		if (autoDarkMode) {
-			
-		}
+		attrHelpText= [[NSAttributedString alloc] initWithRTF:[NSData dataWithContentsOfURL:helpFile] documentAttributes:NULL];
 	} else {
 		//Must be a rtfd
-		if (darkMode) {
-			helpFile = [[NSBundle mainBundle] URLForResource:[rtfFile stringByAppendingString:@"Dark"] withExtension:@"rtfd"];
-		}
-		if (!helpFile) {
-			helpFile = [[NSBundle mainBundle] URLForResource:rtfFile withExtension:@"rtfd"];
-			if (darkMode) autoDarkMode = YES;
-		}
+		helpFile = [[NSBundle mainBundle] URLForResource:rtfFile withExtension:@"rtfd"];
 		if (helpFile) {
 			NSError * error = nil;
 			NSFileWrapper * rtfdDirectory = [[NSFileWrapper alloc] initWithURL:helpFile options:0 error:&error];
@@ -113,14 +111,12 @@
 	if (!attrHelpText) {
 		attrHelpText = [[NSAttributedString alloc] initWithString:
 					[NSString stringWithFormat:@"Can't find help text for %@ at path %@", rtfFile, helpFile]];
-		if (darkMode) autoDarkMode = YES;
 	}
-	if (autoDarkMode) {
-		NSMutableAttributedString * temp = [[NSMutableAttributedString alloc] initWithAttributedString:attrHelpText];
-		[temp setAttributes:@{NSForegroundColorAttributeName : [NSColor textColor] } range:NSMakeRange(0, temp.length)];
-		attrHelpText = [[NSAttributedString alloc] initWithAttributedString:temp];
-	}
+#ifdef MAC_APP_STORE
+	attrHelpText = [attrHelpText replace:@"cTiVo" with:@"cTV"];
+#endif
 	self.attributedString = attrHelpText;
+					
 }
 
 @end

@@ -9,37 +9,44 @@
 #import "iTunes.h"
 #import "MTDownload.h"
 
+@interface MTiTunes()
+@property (nonatomic, strong) iTunesApplication *iTunes;
+@property (nonatomic, strong) iTunesSource *iTunesLibrary;
+@property (nonatomic, strong) iTunesLibraryPlaylist *libraryPlayList;
+@property (nonatomic, strong) iTunesPlaylist *tivoPlayList;
+@property (nonatomic, assign) BOOL audioOnly;
+@end
+
 @implementation MTiTunes
 
 __DDLOGHERE__
 
 -(SBApplication *) iTunes {
 	if (!_iTunes || ![_iTunes isRunning]){
-		_iTunes = [SBApplication applicationWithBundleIdentifier:@"com.apple.iTunes"];
-		if (!_iTunes) DDLogMajor(@"couldn't find iTunes");
+            _iTunes = [SBApplication applicationWithBundleIdentifier:[self appBundleName]];
+        if (!_iTunes) {
+            DDLogMajor(@"couldn't find %@ application", [self appName]);
+        }
 	}
 	return _iTunes;
 }
 
 -(iTunesSource *) iTunesLibraryHelper {
-	NSPredicate * libraryKindPred = [NSPredicate predicateWithFormat:@"kind == %@",[NSAppleEventDescriptor descriptorWithTypeCode:iTunesESrcLibrary]];
-	SBElementArray *librarySources = [self.iTunes sources];
-	[librarySources filterUsingPredicate:libraryKindPred];
-	if ([librarySources count] > 0){
-		return [librarySources objectAtIndex:0];
-	} else {
-		return nil;
-	}
+	NSArray<iTunesSource *> *librarySources = [[self.iTunes sources] get];
+    for ( iTunesSource * source in librarySources) {
+        if (source.kind == iTunesESrcLibrary) {
+            return source;
+        }
+    }
+    return nil;
 }
 
 -(iTunesSource *) iTunesLibrary   {
 	if (!_iTunesLibrary) {
 		_iTunesLibrary = [self iTunesLibraryHelper];
 		if (!_iTunesLibrary) {
-			DDLogReport(@"couldn't find iTunes Library. Probably permissions problem.");
-			dispatch_sync(dispatch_get_main_queue(), ^{
-				[self warnUserPermissions];
-			});
+			DDLogReport(@"couldn't find %@ Library. Probably permissions problem.", [self appName]);
+			[self warnUserPermissions];
 			_iTunesLibrary = [self iTunesLibraryHelper];
 			
 		}
@@ -52,32 +59,29 @@ __DDLOGHERE__
 	if (!_libraryPlayList|| ![_libraryPlayList exists]) {
         iTunesSource * iLibrary = [self iTunesLibrary];
         if (!iLibrary) return nil;
-		SBElementArray * allLists = [iLibrary libraryPlaylists];
+		NSArray <iTunesLibraryPlaylist *> * allLists = [[iLibrary libraryPlaylists] get];
 		if (allLists.count > 0) {
-				
-			iTunesPlaylist * list = [allLists objectAtIndex:0];
-            if ([list exists]) {
-				_libraryPlayList = (iTunesLibraryPlaylist *)list;
-            }
+            _libraryPlayList = allLists[0];
 		}
         if (!_libraryPlayList) {
-			DDLogMajor(@"couldn't find iTunes playList");
+			DDLogMajor(@"couldn't find %@ playList", [self appName]);
 		}
 	}
 	return _libraryPlayList;
 }
 
 -(iTunesPlaylist *) tivoPlayList {
-	if (!_tivoPlayList || ![_tivoPlayList exists]) {
+	if (!_tivoPlayList) {
         iTunesSource * iLibrary = [self iTunesLibrary];
         if (!iLibrary) return nil;
-		SBElementArray * allLists = [iLibrary playlists];
-        NSPredicate * libraryKindPred = [NSPredicate predicateWithFormat:@"name LIKE[CD] %@ ",@"Tivo Shows"];
-		NSArray *TivoLists = [allLists filteredArrayUsingPredicate:libraryKindPred];
-		if ([TivoLists count] > 0){
-			_tivoPlayList = [TivoLists objectAtIndex:0];
+		NSArray<iTunesPlaylist *> * allLists = [[iLibrary playlists] get];
+        for ( iTunesPlaylist * playList in allLists) {
+            if ([playList.name isEqualToString: @"Tivo Shows"]) {
+                _tivoPlayList = playList;
+                break;
+            }
         }
-		if (!_tivoPlayList || ![_tivoPlayList exists]) {
+		if (!_tivoPlayList ) {
 			//No tivo playlist found; create one
 			NSDictionary *props = @{
 				@"name":@"Tivo Shows",
@@ -85,15 +89,16 @@ __DDLOGHERE__
 			};
 			iTunesPlaylist * newPlayList = [[[[self iTunes] classForScriptingClass:@"playlist" ] alloc ] initWithProperties:props ];
 			
-			//newPlayList.specialKind = iTunesESpKMovies;
 			if (newPlayList ) {
-				[allLists  insertObject:newPlayList atIndex:[allLists count]-1];
+				[[iLibrary playlists]  insertObject:newPlayList atIndex:[allLists count]-1];
 				if ([newPlayList exists]) {
 					newPlayList.name = @"Tivo Shows";
 				} else {
-					DDLogMajor(@"couldn't create TivoShow list");
+					DDLogMajor(@"couldn't create Tivo Shows list");
 				}
 				_tivoPlayList = newPlayList;
+			} else {
+				DDLogMajor(@"No playlist created.");
 			}
 		}
 	}
@@ -118,35 +123,61 @@ __DDLOGHERE__
 	([self fileNumber:attributesA] == [self fileNumber:attributesB]);
 }
 
+//handles diffferences between TV and iTunes sdef
+-(void) setArtist:(NSString *) artist forTrack:(iTunesFileTrack *) track {
+	if (artist.length ==0) return;
+	if ([track respondsToSelector:@selector(setArtist:)]) {
+		[track performSelector:@selector(setArtist:) withObject:artist];
+	}
+	if ([track respondsToSelector:@selector(setAlbumArtist:)]) {
+		[track performSelector:@selector(setAlbumArtist:) withObject:artist];
+	}
+}
+
+-(void) setDirector:(NSString *)director forTrack:(iTunesFileTrack *) track {
+	if (director.length ==0) return;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundeclared-selector"
+    if ([track respondsToSelector:@selector(setDirector:)]) {
+		[track performSelector:@selector(setDirector:) withObject:director];
+	}
+#pragma clang diagnostic pop
+	if ([track respondsToSelector:@selector(setArtist:)]) {
+		[track performSelector:@selector(setArtist:) withObject:director];
+	}
+}
+
 -(NSString *) importIntoiTunes: (MTDownload * ) download withArt:(NSImage *) image {
 	//Caller responsible for informing user of progress
 	// There can be a long delay as iTunes starts up
 	//maintain source code parallel with MTTivoShow.m>metadataTagsWithImage
 	MTTiVoShow * show = download.show;
 	NSURL * showFileURL = [NSURL fileURLWithPath:download.encodeFilePath];
-    iTunesPlaylist * myPlayList = self.tivoPlayList;
-    if (!myPlayList) {
-        DDLogReport(@"Couldn't create TiVo playlist, because library not found. Is iTunes frozen?" );
+    NSString * fileExtension = [[download.encodeFilePath pathExtension] uppercaseString];
+    NSSet * musicTypes =[NSSet setWithObjects:@"AAC", @"MPE",@"AIF",@"WAV",@"AIFF",@"M4A",@"MP3",nil];
+    self.audioOnly = [musicTypes containsObject:fileExtension] ;
+    iTunesLibraryPlaylist * myLibraryList = self.libraryPlayList;
+    if (!myLibraryList) {
+        DDLogReport(@"Couldn't create TiVo playlist, because library not found. Is %@ frozen?", [self appName] );
         return nil;
     }
-    iTunesFileTrack * newTrack = (iTunesFileTrack *)[self.iTunes add:@[showFileURL] to: [self tivoPlayList] ];
-	NSError * error = newTrack.lastError;
-	if ([newTrack exists]) {
-		DDLogReport(@"Added iTunes track:  %@", show.showTitle);
-		NSString * fileExtension = [[download.encodeFilePath pathExtension] uppercaseString];
-		NSSet * musicTypes =[NSSet setWithObjects:@"AAC", @"MPE",@"AIF",@"WAV",@"AIFF",@"M4A",nil];
-		BOOL audioOnly = [musicTypes containsObject:fileExtension] ;
-		if (audioOnly) {
-			newTrack.videoKind = iTunesEVdKNone;
+    iTunesFileTrack * newTrack = (iTunesFileTrack *)[self.iTunes add:@[showFileURL] to: myLibraryList ];
+
+    NSError * error = newTrack.lastError;
+    if (newTrack && !error) {
+
+		DDLogReport(@"Added %@ track to %@", show.showTitle, [self appName]);
+        if (self.audioOnly) {
+			newTrack.mediaKind = iTunesEMdKSong;
 		} else if (show.isMovie) {
-			newTrack.videoKind = iTunesEVdKMovie;
+			newTrack.mediaKind = iTunesEMdKMovie;
 		} else {
-			newTrack.videoKind = iTunesEVdKTVShow;
+			newTrack.mediaKind = iTunesEMdKTVShow;
 		}
 
 		if (show.isMovie) {
 			newTrack.name = show.showTitle;
-            newTrack.artist = show.directors.string;
+			[self setDirector: show.directors.string forTrack:newTrack];
 		} else {
 			if (show.season > 0) {
 				newTrack.album = [NSString stringWithFormat: @"%@, Season %d",show.seriesTitle, show.season];
@@ -154,8 +185,8 @@ __DDLOGHERE__
 			} else {
 				newTrack.album =  show.seriesTitle;
 			}
-			newTrack.albumArtist = show.seriesTitle;
-			newTrack.artist =show.seriesTitle;
+			[self setArtist: show.seriesTitle forTrack:newTrack];
+			[self setDirector: show.directors.string forTrack:newTrack];
 			if (show.episodeTitle.length ==0) {
 				NSString * dateString = show.originalAirDateNoTime;
 				if (dateString.length == 0) {
@@ -200,24 +231,25 @@ __DDLOGHERE__
 			artwork.data = image;
 		}
 
-	/* haven't bothered with:
-	 tell application "Finder"
-	 set comment of this_item2 to (((show_name as string) & " - " & episodeName as string) & " - " & file_description as string)
-	 
-	 end tell
-	 */
+        iTunesPlaylist * myPlayList = self.tivoPlayList;
+        iTunesFileTrack * tivoShowTrack = (iTunesFileTrack *) [newTrack duplicateTo:myPlayList];
+        error = tivoShowTrack.lastError;
+        
 		if ([[NSUserDefaults standardUserDefaults] boolForKey:kMTiTunesSync]) {
 			[self updateAllIDevices];
 		}
-		NSString * newLocation =  [[newTrack location] path];
+        NSString * newLocation =  [[newTrack location] path];
 
-		if ([self is:newLocation sameFileAs:download.encodeFilePath]) {
+        if (error || !newLocation) {
+            DDLogReport(@"%@ reports problem with track: %@ (%@)from %@ because %@",  [self appName], show.showTitle, download.encodeFormat.name, showFileURL, [error localizedDescription] ?: @"no reason given");
+            return download.encodeFilePath;
+        }  else if ([self is:newLocation sameFileAs:download.encodeFilePath]) {
 			return download.encodeFilePath;
 		} else {
 			return newLocation;
 		}
 	} else {
-		DDLogReport(@"Couldn't add iTunes track: %@ (%@)from %@ because %@", show.showTitle, download.encodeFormat.name, showFileURL, [error localizedDescription] );
+		DDLogReport(@"Couldn't add %@ track: %@ (%@)from %@ because %@",  [self appName], show.showTitle, download.encodeFormat.name, showFileURL, [error localizedDescription] );
 		DDLogVerbose(@"track: %@, itunes: %@; playList: %@", newTrack, self.iTunes, self.tivoPlayList);
 		return nil;
 	}
@@ -226,7 +258,9 @@ __DDLOGHERE__
 - (void) updateAllIDevices {
     SBElementArray * sources = [[self iTunes] sources];
     for (iTunesSource * iPod in sources) {
-        [iPod update];
+        if ([iPod respondsToSelector:@selector(update)]) {
+            [iPod update];
+        }
     }
 	DDLogMajor(@"Updated all iTunes Devices");
 
@@ -235,16 +269,20 @@ __DDLOGHERE__
 #pragma mark - iTunes Permissions   Yuck.
 
 -(void) warnUserPermissions {
-	if(@available(macOS 10.14, *)) {
+	if (![NSThread isMainThread]) {
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			[self warnUserPermissions];
+		});
+	} else if (@available(macOS 10.14, *)) {
 		//trigger check
 		[[NSUserDefaults standardUserDefaults] setBool:NO forKey:kMTiTunesSubmit];
 		[[NSUserDefaults standardUserDefaults] setBool:YES forKey:kMTiTunesSubmit];
 	} else {
-		NSAlert *alert2 = [NSAlert alertWithMessageText: @"Warning: cTiVo cannot access iTunes. "
+		NSAlert *alert2 = [NSAlert alertWithMessageText: @"Warning: " kcTiVoName @" cannot access iTunes. "
 										  defaultButton: @"OK"
 										alternateButton: nil
 											otherButton: nil
-							  informativeTextWithFormat: @"Please contact cTiVo help site."];
+							  informativeTextWithFormat: @"Please contact " kcTiVoName @" help site."];
 		[alert2 runModal];
 	}
 }
@@ -307,7 +345,7 @@ __DDLOGHERE__
 
 -(void) closeiTunes {
     for ( NSRunningApplication * app in [[NSWorkspace sharedWorkspace] runningApplications] ) {
-        if ( [@"iTunes" isEqualToString:[[app executableURL] lastPathComponent]]) {
+        if ( [[self appName] isEqualToString:[[app executableURL] lastPathComponent]]) {
             [app terminate];
             break;
         }
@@ -365,14 +403,40 @@ __DDLOGHERE__
 	}
 }
 
+-(NSString *) appBundleName {
+	if (@available(macOS 10.15, *)) {
+        if (self.audioOnly) {
+            return @"com.apple.Music";
+        } else {
+            return @"com.apple.TV";
+        }
+	} else {
+		return @"com.apple.iTunes";
+	}
+
+}
+-(NSString *) appName {
+	if (@available(macOS 10.15, *)) {
+        if (self.audioOnly) {
+            return @"Music";
+        } else {
+            return @"TV";
+        }
+	} else {
+		return @"iTunes";
+	}
+}
+
 -(BOOL) askForiTunesPermissionFix {
 	//ask user to fix problem
 	//returns YES to try again, no if not fixed.
-	NSAlert *iTunesAlert = [NSAlert alertWithMessageText: @"cTiVo cannot access iTunes, probably due to Automation Permission problem in Mojave."
+	NSString * msg = [NSString stringWithFormat:@"" kcTiVoName @" cannot access %@, probably due to Automation Permission problem.", [self appName]];
+	NSString * altMsg = [NSString stringWithFormat:@"Disable " kcTiVoName @"'s use of %@", [self appName]];
+	NSAlert *iTunesAlert = [NSAlert alertWithMessageText: msg
 										   defaultButton: @"Open System Preferences"
-										 alternateButton: @"Disable cTiVo's use of iTunes"
+										 alternateButton: altMsg
 											 otherButton: nil
-							   informativeTextWithFormat: @"You can fix in System Preferences OR disable iTunes submittal"];
+							   informativeTextWithFormat: @"You can fix in System Preferences OR disable %@ submittal", [self appName]];
 	NSInteger returnValue = [iTunesAlert runModal];
 	switch (returnValue) {
 		case NSAlertDefaultReturn: {
@@ -382,7 +446,7 @@ __DDLOGHERE__
 			return [self confirmiTunesPermissionFixed];
 		}
 		case NSAlertAlternateReturn:
-			DDLogMajor(@"User asked to disable iTunes");
+			DDLogMajor(@"User asked to disable %@",  [self appName]);
 			return NO;
 			break;
 		default:
@@ -392,20 +456,24 @@ __DDLOGHERE__
 }
 
 -(void) warnQuitting {
-	NSAlert *alert2 = [NSAlert alertWithMessageText: @"To connect to iTunes, cTiVo must now quit."
+	NSString * msg = [NSString stringWithFormat: @"To connect to %@, " kcTiVoName @" must now quit.", [self appName]];
+	NSAlert *alert2 = [NSAlert alertWithMessageText: msg
 									  defaultButton: @"OK"
 									alternateButton: nil
 										otherButton: nil
-						  informativeTextWithFormat: @"Please restart cTiVo to check iTunes access."];
+						  informativeTextWithFormat: @"Please restart " kcTiVoName @" to check %@ access", [self appName]];
 	[alert2 runModal];
 }
 
 -(BOOL) confirmiTunesPermissionFixed {
-	NSAlert *alert = [NSAlert alertWithMessageText: @"Please click OK when you have enabled cTiVo's iTunes Automation permission in Privacy."
+	NSString * msg = [NSString stringWithFormat:@"Please click OK when you have enabled " kcTiVoName @"'s %@ permission in Privacy.", [self appName]];
+	NSString * altMsg = [NSString stringWithFormat: @"Disable " kcTiVoName @"'s use of %@", [self appName]];
+
+	NSAlert *alert = [NSAlert alertWithMessageText: msg
 									 defaultButton: @"OK"
-								   alternateButton: @"Disable cTiVo's use of iTunes"
-									   otherButton: @"No such switch?"
-						 informativeTextWithFormat: @"Or you can choose to disable iTunes submittal entirely."];
+								   alternateButton: altMsg
+									   otherButton: @"No such switch??"
+						 informativeTextWithFormat: @"Or you can choose to disable %@ submittal entirely.", [self appName]];
 	NSInteger returnValue = [alert runModal];
 	switch (returnValue) {
 		case NSAlertDefaultReturn: {
@@ -414,7 +482,7 @@ __DDLOGHERE__
 			break;
 		}
 		case NSAlertAlternateReturn:
-			DDLogMajor(@"User asked to disable iTunes");
+			DDLogMajor(@"User asked to disable %@", [self appName]);
 			return NO;
 			break;
 		case NSAlertOtherReturn:
@@ -426,11 +494,13 @@ __DDLOGHERE__
 }
 
 -(BOOL) offerResetPermissions {
-	NSAlert *alert = [NSAlert alertWithMessageText: @"Still no iTunes access; cTiVo can reset all macOS Automation permissions if you wish."
+	NSString * msg = [NSString stringWithFormat:@"Still no %@ access; " kcTiVoName @" can reset macOS Automation permissions for ALL apps if you wish.", [self appName]];
+	NSString * altMsg = [NSString stringWithFormat: @"Disable " kcTiVoName @"'s use of %@", [self appName]];
+	NSAlert *alert = [NSAlert alertWithMessageText: msg
 									 defaultButton: @"Reset Automation Permissions"
-								   alternateButton: @"Disable cTiVo's use of iTunes"
+								   alternateButton: altMsg
 									   otherButton: nil
-						 informativeTextWithFormat: @"Or you can choose to disable iTunes submittal entirely."];
+						 informativeTextWithFormat: @"Or you can choose to disable %@ submittal entirely.",  [self appName]];
 	NSInteger returnValue = [alert runModal];
 	switch (returnValue) {
 		case NSAlertDefaultReturn: {
@@ -444,7 +514,7 @@ __DDLOGHERE__
 			break;
 		}
 		case NSAlertAlternateReturn:
-			DDLogMajor(@"User asked to disable iTunes");
+			DDLogMajor(@"User asked to disable %@", [self appName]);
 			return NO;
 			break;
 		default:
@@ -454,11 +524,12 @@ __DDLOGHERE__
 }
 
 -(BOOL) warniTunesFailure {
-	NSAlert *alert2 = [NSAlert alertWithMessageText: @"cTiVo still cannot access iTunes. "
+	NSString * msg = [NSString stringWithFormat:@"" kcTiVoName @" still cannot access %@.", [self appName]];
+	NSAlert *alert2 = [NSAlert alertWithMessageText: msg
 									  defaultButton: @"OK"
 									alternateButton: nil
 										otherButton: nil
-						  informativeTextWithFormat: @"Please check for help at cTiVo's website."];
+						  informativeTextWithFormat: @"Please check for help at " kcTiVoName @"'s website."];
 	[alert2 runModal];
 	return NO;
 }

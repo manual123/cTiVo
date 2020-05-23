@@ -28,13 +28,9 @@
 
 @property (nonatomic, strong) NSString *stationCallSign;
 @property (nonatomic, strong) NSNumber *addToiTunes;
-@property (nonatomic, strong) NSNumber *skipCommercials, *includeSuggestions, *markCommercials, *useSkipMode;
+@property (nonatomic, strong) NSNumber *skipCommercials, *includeSuggestions, *markCommercials, *useSkipMode, *deleteAfterDownload;
 @property (nonatomic, strong) MTFormat *encodeFormat;
 @property (nonatomic, strong) NSNumber *genTextMetaData,
-#ifndef deleteXML
-									   *genXMLMetaData,
-									   *includeAPMMetaData,
-#endif
 									   *exportSubtitles;
 
 @property (readonly) BOOL canAddToiTunes;

@@ -8,19 +8,19 @@
 
 #import <Foundation/Foundation.h>
 #import "MTEdl.h"
-//typedef NS_ENUM(NSUInteger, MPEGFormat) {
-//    MPEGFormatUnknown,
-//    MPEGFormatMP2,
-//    MPEGFormatMP4,
-//    MPEGFormatOther,
-//
-//};
-//
+typedef NS_ENUM(NSUInteger, MPEGFormat) {
+    MPEGFormatUnknown = 0,
+    MPEGFormatMPG2,
+    MPEGFormatH264,
+    MPEGFormatOther,
+};
+
 typedef NS_ENUM(NSUInteger, MTWhatsOnType) {
     MTWhatsOnUnknown = 0,
     MTWhatsOnLiveTV,
     MTWhatsOnRecording,
-    MTWhatsOnStreamingOrMenus
+    MTWhatsOnStreamingOrMenus, //unfortunately, also when nominally asleep
+	MTWhatsOnLoopset
 };
 
 @interface MTRPCData : NSObject <NSSecureCoding, NSCoding>
@@ -34,7 +34,7 @@ typedef NS_ENUM(NSUInteger, MTWhatsOnType) {
 @property (nonatomic, strong) NSString * genre;
 @property (nonatomic, strong) NSString * clipMetaDataId;
 @property (nonatomic, assign) BOOL skipModeFailed;
-//@property (nonatomic, assign) MPEGFormat format;
+@property (nonatomic, assign) MPEGFormat format;
 @property (nonatomic, assign) NSTimeInterval tempLength; //hint from TiVoShow, as sometimes TiVo doesn't report
 
 @property (nonatomic, strong) NSString * imageURL;
@@ -51,9 +51,9 @@ typedef NS_ENUM(NSUInteger, MTWhatsOnType) {
 -(void) tivoReports: (NSInteger) numShows
 			     withNewShows: (NSMutableArray <NSString *> *) newShows
                 atTiVoIndices: (NSMutableArray <NSNumber *> *) newShowIndices
-              andDeletedShows: (NSMutableDictionary < NSString *, MTRPCData *> *) deletedShows;
+              andDeletedShows: (NSMutableDictionary < NSString *, MTRPCData *> *) deletedShows
+				isFirstLaunch: (BOOL) firstLaunch;
 -(void) rpcResync;
--(void) rpcRecentChange;
 -(BOOL) isReachable;
 -(BOOL) isMini;
 -(BOOL) isOlderTiVo;

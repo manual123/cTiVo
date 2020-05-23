@@ -50,8 +50,6 @@
 
 #define kMTNotificationUserCanceledQuit @"kMTNotificationUserCanceledQuit" 
 
-#define deleteXML 1   //placeholder to store deleted code in case we decide to restore XML export; need to add to downloadTable, subTable, menu and pref NIBx also
-
 //Download Status  Note: at some time in future, reorder back to normal (and move to 10x to allow new numbers.
 #define kMTStatusNew 0
 #define kMTStatusSkipModeWaitInitial 17  //Waiting before download
@@ -76,7 +74,7 @@
 #define kMTStatusFailed 16
 #define kMTStatusRemovedFromQueue 99
 
-//Contants
+//Constants
 
 #define kMTUpdateIntervalMinDefault 240 //Default Update interval for re-checking current TiVo for RPC TiVos
 #define kMTUpdateIntervalMinDefaultNonRPC 15 //Default Update interval for re-checking current TiVo for 3 Series
@@ -99,12 +97,10 @@
 #define kMTSubscribedSimulEncode @"simultaneousEncode"
 #define kMTSubscribedSkipCommercials @"skipCommercials"
 #define kMTSubscribedUseSkipMode @"useSkipMode"
+#define kMTSubscribedUseTS @"useTS"
 #define kMTSubscribedMarkCommercials @"markCommercials"
 #define kMTSubscribedIncludeSuggestions @"includeSuggestions"
 #define kMTSubscribedGenTextMetaData     @"GenTextMetadata"
-#ifndef deleteXML
-#define kMTSubscribedGenXMLMetaData	    @"GenXMLMetadata"
-#endif
 #define kMTSubscribedIncludeAPMMetaData  @"IncludeAPMMetaData"
 #define kMTSubscribedExportSubtitles  @"ExportSubtitles"
 #define kMTSubscribedPreferredTiVo  @"PreferredTiVo"
@@ -113,6 +109,8 @@
 #define kMTSubscribedPrevRecorded @"PrevRecorded" //not used
 #define kMTSubscribedRegExPattern @"RegExPattern"
 #define kMTSubscribedCallSign @"StationCallSign"
+#define kMTSubscribedDeleteAfterDownload @"DeleteAfterDownload"
+
 #define kMTTVDBToken @"TVDBToken"
 #define kMTTVDBTokenExpire @"TVDBTokenExpire"
 
@@ -125,15 +123,11 @@
 #define kMTQueueStatus  @"QueueStatus"
 #define kMTQueueShowStatus @"QueueShowStatus"
 #define kMTQueueDirectory @"QueueDirectory"
-//#define kMTQueueDownloadFile @"QueueDownloadFile"
-//#define kMTQueueBufferFile @"QueueBufferFile"
 #define kMTQueueFinalFile @"QueueFileName"
 #define kMTQueueGenTextMetaData     @"QueueGenTextMetadata"
-#ifndef deleteXML
-#define kMTQueueGenXMLMetaData	    @"QueueGenXMLMetadata"
-#endif
 #define kMTQueueIncludeAPMMetaData  @"QueueIncludeAPMMetaData"
 #define kMTQueueExportSubtitles  @"QueueExportSubtitles"
+#define kMTQueueDeleteAfterDownload  @"QueueDeleteAfterDownload"
 
 
 //Column editing userDefaults
@@ -144,16 +138,14 @@
 
 //Misc
 
-#define kMTFirstName @"MTFirstName"
-#define kMTLastName @"MTLastName"
 #define kMTAllTiVos @"All TiVos"
-#define kMTDefaultDownloadDir  @"Movies/TiVoShows/"
 #define kMTMaxBuffSize 50000000
 #define kMTMaxReadPoints 1048576
 #define kMTMaxPointsBeforeWrite 1048576
 #define kMTTimeToHelpIfNoTiVoFound 15
 
 #define kMTTivoShowPasteBoardType @"com.cTiVo.TivoShow"
+#define kMTTiVoShowArrayPasteBoardType @"com.cTiVo.TivoShows"
 #define kMTDownloadPasteBoardType @"com.cTiVo.Download"
 #define kMTInputLocationToken @"<<<INPUT>>>"
 
@@ -182,6 +174,10 @@
 #define kMTSelectedTiVo @"SelectedTiVo"             //Name of currently selected TiVo
 #define kMTSelectedFormat @"SelectedFormat"         //Name of currently selected format for conversion
 #define kMTDownloadDirectory  @"DownloadDirectory"  //Pathname for directory for dowloaded files
+#ifdef SANDBOX
+#define kMTDownloadDirBookmark  @"DownloadDirBookmark"  //security-scope bookmark for directory for downloaded files (if not standard); overrides downloadDirectoryPath
+#define kMTRecentDownloadBookMarks @"RecentDownloadBookmarks"   //Array of security scope bookmark where we might have videos stored.
+#endif
 #define kMTThumbnailsDirectory  @"ThumbnailsDirectory"  //Pathname for directory for dowloaded files (no GUI)
 #define kMTSubscriptionList @"SubscriptionList"     //Array of subscription dictionaries
 #define kMTTiVoLastLoadTimes @"TiVoLastLoadTImes"   //Array of Date each tivo last processed
@@ -205,6 +201,12 @@
 
 #define kMTTmpFilesPath @"TmpFilesPath"   //Where are temporary files saved
 
+#ifdef MAC_APP_STORE
+#define kcTiVoName @"cTV"
+#else
+#define kcTiVoName @"cTiVo"
+#endif
+
 #define kMTFileNameFormat @"FileNameFormat"			//keyword pattern for filenames
 #define kMTPlexFolder @"[\"TV Shows\" / MainTitle / \"Season \" Season | Year / MainTitle \" - \" SeriesEpNumber | OriginalAirDate [\"-\" ExtraEpisode][\" - \" EpisodeTitle | Guests]][\"Movies\"  / MainTitle \" (\" MovieYear \")\"]"
 #define kMTcTiVoFolder @"[[MainTitle / MainTitle \" - \" EpisodeTitle | Guests | OriginalAirDate]|[\"Movies\"  / MainTitle \" (\" MovieYear \")\"]]"
@@ -226,11 +228,8 @@
 #define kMTCommercialStrategy @"CommercialStrategy"  // 0 - comskip; 1= skipMode only; 2 = skipMode, fallback to Comskip, 3 = SkipMode, fallback to comskip,mark only
 #define kMTExportSubtitles @"ExportSubtitles"        // Whether to export subtitles with ts2ami
 #define kMTExportTextMetaData @"ExportTextMetaData"  // Whether to export text metadata for PyTivo
-
-#ifndef deleteXML
-#define kMTExportTivoMetaData @"ExportTivoMetaData"  // Whether to export XML metadata
-#define kMTExportMetaData @"ExportMetaData"          // Whether to export metadata with Atomic Parsley
-#endif
+#define kMTKeepSRTs            @"KeepSRTs"           // Whether to keep SRTs when embedded in main file time? NO GUI
+#define kMTAllowMP2InTS        @"AllowMP2InTS"       // Whether to reject MPEG2 streams downloaded in Transport Stream?
 
 #define kMTScheduledOperations @"ScheduledOperations"// Whether to run queue at a scheduled time;
 #define kMTScheduledStartTime  @"ScheduledStartTime" // NSDate when to start queue

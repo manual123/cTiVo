@@ -2,64 +2,26 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"  xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>cTiVo Updates</title>
-        <link>https://raw.github.com/dscottbuch/cTiVo/master/update/sparklecast.xml</link>
-        <description>Version 3.1.2; Certificate Update</description>
+        <link>https://raw.github.com/mackworth/cTiVo/master/update/sparklecast.xml</link>
+        <description>Version 3.4.1; Catalina!</description>
         <language>en</language>
         <item>
-            <title>Version 3.1.2; Certificate Update</title>
+            <title>Version 3.4.1; Catalina</title>
             <description><![CDATA[
-				<h2 id="release-3.1">Release 3.1.2: Certificate Update!</h2>
-                <h3>3.1.2 features</h2>
-                <ul>
-                <li>A small release to update the certificate used to communicate with TiVo's RPC mechanism, which otherwise would expire at the end of April.</li>
-                <li>Also, TVDB has frequently been unresponsive recently, causing cTiVo to be unstable. This fixes the latter part.</li>
-                </ul>
-				<h2 id="release-3.1">Release 3.1.1: Directories!</h2>
-                <h3>3.1.1 features</h2>
-                <ul>
-				<li>If Download or Temporary directories have a problem, cTiVo will pause and ask.</li>
-                <li>Download directory now fixed when download job starts, not when first created.</li>
-                <li>Uses user-specific temp folder, rather than /tmp/ctivo.</li>
-				<li>(Note: this release is exactly same as 3.1.1beta4)</li>
-                </ul>
-				
-                <h3>Minor Improvements:</h3>
-                <ul>
-                <li>Option for automatic deletion on TiVo after download (Adv Prefs).</li>
-				<li>Option for number of simultaneous encoders.</li>
-                </ul>
-				
-				<h2>3.1 features: Folders!</h2>
+				<h2 id="Release-3.4.1">Release 3.4.1 (Catalina)</h1>
 				<ul>
-				<li>Shows can now be grouped in series folders.</li>
-				<li>Advanced Preferences is no longer hidden behind Option key.</li>
-				<li>Preferences has simpler directory structure choices (e.g. Plex support)</li>
-				<li>Auto-relocation to Applications directory.</li>
+				<li>3.4.1 has miscellaneous fixes, especially for Catalina</li>
+				<li>On Catalina, sends videos to Apple&rsquo;s new TV app due to obsolescence of iTunes.<br>
+				    (Audio-only downloads to Music app)</li>
+				<li>New <em>Get Info</em> command for TiVos (disk space, network connectivity etc)</li>
+				<li>Sandboxed <em>cTV</em> version also now available.</li>
+				<li>See website for more info regarding using TiVo SkipMode if you're not using it yet with cTiVo.</li>
 				</ul>
-
-				<h2>3.0 features</h2>
-                <h3>Artwork enhancements:</h3>
-                <ul>
-                <li>New Artwork column in Now Playing List.</li>
-                <li>Your choice of artwork from TiVo* or theTVDB (Series, Season, Episode, or Movie from theMovieDB).</li>
-                <li>Manual updates of artwork by drag/drop onto table.</li>
-                <li>Manual artwork updates apply to files already recorded as well.</li>
-                <li>Finder Icons now reflect artwork of file.</li>
-                </ul>
-                <h3>Real-time features:</h3>
-                <ul>
-                <li>TiVo now notifies cTiVo as the Now Playing list changes, so new shows are updated instantaneously.*</li>
-                <li>Ability to "Delete Show from TiVo" (in Edit menu and contextual menu).*</li>
-                <li>Ability to "Stop Recording show from TiVo" (in Edit menu and contextual menu).*</li>
-                </ul>
-                <p>*Starred* items require RPC, real-time functionality, only available on TiVo Premiere or later (so not Series 2, 3, HD, or HD XL)</p>
-
-                <p>See <a href="https://github.com/dscottbuch/cTiVo"> cTiVo Home </a> for more information.</p>
             ]]>
             </description>
-            <pubDate>Sat., March 3, 2018 22:00:00 -0800</pubDate>
+            <pubDate>Fri., November 28, 2019 12:00:00 -0800</pubDate>
             <sparkle:minimumSystemVersion>10.9.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/dscottbuch/cTiVo/releases/download/3.1.2/cTiVo.zip" sparkle:version="857" sparkle:shortVersionString="3.1.2" length="50552671" type="application/octet-stream" sparkle:dsaSignature="MCwCFA1HNQMlJtGDksc5pb8ghb6J1c27AhQnyDxCLxJ0W3OJtb9zJ0rnsNrfpw=="/>
+			<enclosure url="https://github.com/mackworth/cTiVo/releases/download/3.4.1/cTiVo.app.zip" sparkle:version="1108" sparkle:shortVersionString="3.4.1" length="72876028" type="application/octet-stream" sparkle:dsaSignature="MC0CFDkiBwv9zvt2m9mW6XQv+Cx8OD4dAhUAu8PQSZdEBONlqsvNKVH1DXkGVV8="/>
         </item>
         <item>
             <title>Version 2.5.1; H.264 and other major improvements</title>
@@ -80,11 +42,11 @@
 
                 <p>Comcast and other cable companies are migrating from MPEG-2 compressed streams to MPEG-4 (aka H.264). They do this to reduce the size and improve the quality of their signals. Comcast seem to be rolling this out slowly, one market at a time and changing over one channel at a time. Although this transition requires many changes to cTiVo, they are transparent in normal operation, except that older Formats may be incompatible. With this release, we&rsquo;ve provided a whole new set of Formats, and taken the opportunity to make the Format selection process easier.</p>
 
-                See <a href="https://github.com/dscottbuch/cTiVo"> cTiVo Home </a> for more information.
+                See <a href="https://github.com/mackworth/cTiVo"> cTiVo Home </a> for more information.
             ]]>
             </description>
             <pubDate>Sun., February 3, 2017 20:00:00 -0800</pubDate>
-            <enclosure url="https://github.com/dscottbuch/cTiVo/releases/download/2.5.1/cTiVo-10.7.zip"
+            <enclosure url="https://github.com/mackworth/cTiVo/releases/download/2.5.1/cTiVo-10.7.zip"
             sparkle:version="714" sparkle:shortVersionString="2.5.1"
             length="39761117"
             type="application/octet-stream"
